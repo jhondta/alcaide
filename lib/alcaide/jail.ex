@@ -222,6 +222,25 @@ defmodule Alcaide.Jail do
 
     Output.info("Starting application in jail #{name}...")
 
+    # Ensure release libs are visible to the Erlang runtime.
+    # The boot script resolves OTP libs via $ROOT (ROOTDIR), which points
+    # to the system Erlang installation. When the release bundles a newer
+    # patch version of an OTP lib (e.g. public_key-1.20.1 vs system 1.20),
+    # we symlink the release version into the system lib dir so the boot
+    # script can find it.
+    otp_version = :erlang.system_info(:otp_release) |> List.to_string()
+
+    SSH.run!(conn, """
+    jexec #{name} /bin/sh -c '
+      for lib in /app/lib/*; do
+        name=$(basename "$lib")
+        if [ ! -e /usr/local/lib/erlang#{otp_version}/lib/"$name" ]; then
+          ln -sf "$lib" /usr/local/lib/erlang#{otp_version}/lib/"$name"
+        fi
+      done
+    '
+    """)
+
     env_str =
       config.env
       |> Enum.map(fn {key, value} ->
