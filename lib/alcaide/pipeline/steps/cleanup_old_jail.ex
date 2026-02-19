@@ -3,18 +3,18 @@ defmodule Alcaide.Pipeline.Steps.CleanupOldJail do
   use Alcaide.Pipeline.Step
 
   @impl true
-  def name, do: "Clean up previous jail"
+  def name, do: "Stop previous jail"
 
   @impl true
   def run(context) do
     case context[:current_slot] do
       nil ->
-        Alcaide.Output.info("No previous jail to clean up (first deploy)")
+        Alcaide.Output.info("No previous jail to stop (first deploy)")
         {:ok, context}
 
       slot ->
         %{conn: conn, config: config} = context
-        Alcaide.Jail.destroy(conn, config, slot)
+        Alcaide.Jail.stop(conn, config, slot)
         {:ok, context}
     end
   end

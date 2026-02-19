@@ -193,6 +193,47 @@ defmodule Alcaide.Jail do
   end
 
   @doc """
+  Returns the currently active (running) slot, or nil if none is running.
+  """
+  @spec current_slot(SSH.t(), Alcaide.Config.t()) :: slot() | nil
+  def current_slot(conn, config) do
+    {:ok, output, _} = SSH.run(conn, "jls -q name 2>/dev/null || true")
+
+    active_jails =
+      output
+      |> String.trim()
+      |> String.split("\n", trim: true)
+
+    app = Atom.to_string(config.app)
+
+    cond do
+      "#{app}_blue" in active_jails -> :blue
+      "#{app}_green" in active_jails -> :green
+      true -> nil
+    end
+  end
+
+  @doc """
+  Returns the opposite slot.
+  """
+  @spec other_slot(slot()) :: slot()
+  def other_slot(:blue), do: :green
+  def other_slot(:green), do: :blue
+
+  @doc """
+  Checks if a jail's directory exists on disk (even if the jail is not running).
+  """
+  @spec jail_exists?(SSH.t(), Alcaide.Config.t(), slot()) :: boolean()
+  def jail_exists?(conn, config, slot) do
+    jail_path = "#{config.app_jail.base_path}/#{jail_name(config, slot)}"
+
+    case SSH.run(conn, "test -d #{jail_path} && echo yes || echo no") do
+      {:ok, result, 0} -> String.trim(result) == "yes"
+      _ -> false
+    end
+  end
+
+  @doc """
   Destroys a jail: stops it and removes its directory.
   """
   @spec destroy(SSH.t(), Alcaide.Config.t(), slot()) :: :ok

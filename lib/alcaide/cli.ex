@@ -5,12 +5,14 @@ defmodule Alcaide.CLI do
   Parses arguments and dispatches to the appropriate command.
   """
 
-  alias Alcaide.{Config, SSH, Output, Pipeline}
+  alias Alcaide.{Config, SSH, Output, Pipeline, Jail, Proxy, Secrets, HealthCheck}
 
   @deploy_steps [
+    Pipeline.Steps.DestroyStaleJail,
     Pipeline.Steps.BuildRelease,
     Pipeline.Steps.UploadRelease,
     Pipeline.Steps.DetermineSlot,
+    Pipeline.Steps.LoadSecrets,
     Pipeline.Steps.CreateJail,
     Pipeline.Steps.InstallRelease,
     Pipeline.Steps.StartJail,
@@ -36,6 +38,9 @@ defmodule Alcaide.CLI do
     case commands do
       ["deploy"] -> deploy(config_path)
       ["setup"] -> setup(config_path)
+      ["rollback"] -> rollback(config_path)
+      ["secrets", "init"] -> secrets_init()
+      ["secrets", "edit"] -> secrets_edit()
       _ -> usage()
     end
   end
@@ -75,6 +80,91 @@ defmodule Alcaide.CLI do
   rescue
     e ->
       Output.error("Setup failed: #{Exception.message(e)}")
+      System.halt(1)
+  end
+
+  defp rollback(config_path) do
+    config = Config.load!(config_path)
+    {:ok, conn} = SSH.connect(config.server)
+
+    Output.step("Rolling back #{config.app}")
+
+    run_rollback(conn, config)
+
+    SSH.disconnect(conn)
+  rescue
+    e ->
+      Output.error("Rollback failed: #{Exception.message(e)}")
+      System.halt(1)
+  end
+
+  defp run_rollback(conn, config) do
+    # 1. Find currently active jail
+    current = Jail.current_slot(conn, config)
+
+    unless current do
+      raise "No active jail found. Nothing to roll back to."
+    end
+
+    # 2. Determine the other slot
+    target = Jail.other_slot(current)
+
+    # 3. Verify the target jail exists on disk
+    unless Jail.jail_exists?(conn, config, target) do
+      raise "Previous jail (#{Jail.jail_name(config, target)}) does not exist. " <>
+              "Rollback is only possible if the previous jail was preserved."
+    end
+
+    Output.info(
+      "Rolling back from #{Jail.jail_name(config, current)} " <>
+        "to #{Jail.jail_name(config, target)}"
+    )
+
+    # 4. Load secrets if configured (merge env vars)
+    config = load_secrets_for_rollback(config)
+
+    # 5. Start the target jail and application
+    Output.info("Starting target jail...")
+    :ok = Jail.start(conn, config, target)
+    :ok = Jail.start_app(conn, config, target)
+
+    # 6. Health check
+    Output.info("Running health check...")
+    :ok = HealthCheck.check(conn, config, target)
+
+    # 7. Update proxy
+    Output.info("Updating reverse proxy...")
+    new_caddyfile = Proxy.generate_caddyfile(config, target)
+    Proxy.write_and_reload!(conn, new_caddyfile)
+
+    # 8. Stop the previously active jail
+    Output.info("Stopping previous jail...")
+    Jail.stop(conn, config, current)
+
+    Output.success("Rollback complete! #{Jail.jail_name(config, target)} is now active.")
+  end
+
+  defp load_secrets_for_rollback(config) do
+    case Secrets.load_and_merge_env(config) do
+      {:ok, merged_config} -> merged_config
+      {:skip, config} -> config
+      {:error, reason} -> raise reason
+    end
+  end
+
+  defp secrets_init do
+    Secrets.init!()
+  rescue
+    e ->
+      Output.error("Secrets init failed: #{Exception.message(e)}")
+      System.halt(1)
+  end
+
+  defp secrets_edit do
+    Secrets.edit!()
+  rescue
+    e ->
+      Output.error("Secrets edit failed: #{Exception.message(e)}")
       System.halt(1)
   end
 
@@ -135,8 +225,8 @@ defmodule Alcaide.CLI do
     SSH.run!(conn, "pkg install -y caddy")
 
     Output.info("Writing initial Caddyfile...")
-    initial_caddyfile = Alcaide.Proxy.generate_caddyfile(config, :blue)
-    Alcaide.Proxy.write_and_reload!(conn, initial_caddyfile)
+    initial_caddyfile = Proxy.generate_caddyfile(config, :blue)
+    Proxy.write_and_reload!(conn, initial_caddyfile)
 
     Output.info("Enabling Caddy service...")
     SSH.run!(conn, "sysrc caddy_enable=YES")
@@ -167,6 +257,10 @@ defmodule Alcaide.CLI do
     Usage:
       alcaide setup  [options]    Prepare the server for deployments
       alcaide deploy [options]    Deploy the application
+      alcaide rollback [options]  Roll back to the previous deployment
+
+      alcaide secrets init        Generate master key and encrypted secrets file
+      alcaide secrets edit        Edit secrets in $EDITOR and re-encrypt
 
     Options:
       -c, --config PATH    Path to config file (default: deploy.exs)

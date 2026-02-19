@@ -37,11 +37,16 @@ config :alcaide,
     ]
   ],
 
-  # Environment variables injected into the application jail
-  # Secret values should go in deploy.secrets.exs (encrypted) in a future stage
+  # Environment variables injected into the application jail.
+  # Non-secret values go here. Secret values (SECRET_KEY_BASE, DATABASE_URL
+  # with credentials, etc.) should go in deploy.secrets.exs (encrypted).
+  #
+  # To set up encrypted secrets:
+  #   alcaide secrets init    # generates master key + encrypted secrets file
+  #   alcaide secrets edit    # decrypt, edit in $EDITOR, re-encrypt
+  #
+  # Secrets override values defined here when both have the same key.
   env: [
-    DATABASE_URL: "ecto://app:app@10.0.0.4/my_app_prod",
     PHX_HOST: "myapp.example.com",
-    PORT: "4000",
-    SECRET_KEY_BASE: "generate-with-mix-phx-gen-secret"
+    PORT: "4000"
   ]
