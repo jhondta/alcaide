@@ -96,12 +96,13 @@ defmodule Alcaide.Secrets do
 
       editor = System.get_env("EDITOR") || System.get_env("VISUAL") || "vi"
 
-      # Redirect stdio to /dev/tty so interactive editors (vi, nano) get
-      # a real terminal even when Elixir captures stdio internally
-      exit_code = Mix.shell().cmd("#{editor} #{tmp_path} < /dev/tty > /dev/tty")
+      # :nouse_stdio lets the editor inherit the parent terminal's stdin/stdout,
+      # and :exit_status sends us {port, {:exit_status, code}} when it finishes
+      port = Port.open({:spawn, "#{editor} #{tmp_path}"}, [:nouse_stdio, :exit_status])
 
-      if exit_code != 0 do
-        raise "Editor exited with code #{exit_code}"
+      receive do
+        {^port, {:exit_status, 0}} -> :ok
+        {^port, {:exit_status, code}} -> raise "Editor exited with code #{code}"
       end
 
       updated = File.read!(tmp_path)
