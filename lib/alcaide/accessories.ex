@@ -75,7 +75,7 @@ defmodule Alcaide.Accessories do
 
     # 6. Install PostgreSQL inside the jail
     Output.info("Installing postgresql#{pg_version}-server in jail...")
-    SSH.run!(conn, "jexec #{name} pkg install -y postgresql#{pg_version}-server")
+    SSH.run!(conn, "jexec #{name} pkg install -y postgresql#{pg_version}-server postgresql#{pg_version}-contrib")
 
     # 7. Initialize database cluster (idempotent)
     data_dir = "#{jail_volume}/data#{pg_version}"
