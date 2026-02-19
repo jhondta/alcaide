@@ -35,7 +35,7 @@ defmodule Alcaide.SSH do
         {:ok, %__MODULE__{connection: conn_ref, host: host, user: user, port: port}}
 
       {:error, reason} ->
-        {:error, "SSH connection to #{user}@#{host}:#{port} failed: #{inspect(reason)}"}
+        {:error, "SSH connection to #{user}@#{host}:#{port} failed: #{format_ssh_error(reason)}"}
     end
   end
 
@@ -63,7 +63,9 @@ defmodule Alcaide.SSH do
         output
 
       {:ok, output, exit_code} ->
-        raise "Command failed (exit #{exit_code}): #{command}\nOutput: #{output}"
+        truncated = String.slice(output, 0, 500)
+        suffix = if String.length(output) > 500, do: "\n... (output truncated)", else: ""
+        raise "Command failed (exit #{exit_code}): #{command}\nOutput: #{truncated}#{suffix}"
     end
   end
 
@@ -138,6 +140,21 @@ defmodule Alcaide.SSH do
   end
 
   # --- Private ---
+
+  defp format_ssh_error(:econnrefused),
+    do: "Connection refused. Check that SSH is running on the server."
+
+  defp format_ssh_error(:timeout),
+    do: "Connection timed out. Check the host address and network connectivity."
+
+  defp format_ssh_error(:nxdomain),
+    do: "Host not found. Check the hostname in your deploy.exs."
+
+  defp format_ssh_error(reason) when is_atom(reason),
+    do: "#{reason}. Check your SSH configuration and server accessibility."
+
+  defp format_ssh_error(reason),
+    do: "#{inspect(reason)}. Check your SSH key at ~/.ssh/ and server configuration."
 
   defp collect_output(conn_ref, channel, host, acc, exit_code) do
     receive do

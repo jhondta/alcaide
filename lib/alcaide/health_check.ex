@@ -38,7 +38,9 @@ defmodule Alcaide.HealthCheck do
   end
 
   defp do_check(_conn, url, 0, _interval, _attempt) do
-    {:error, "Health check failed after all retries: #{url}"}
+    {:error,
+     "Health check failed after all retries: #{url}. " <>
+       "Check that the app starts correctly, PORT matches config, and the app binds to 0.0.0.0."}
   end
 
   defp do_check(conn, url, retries_left, interval, attempt) do

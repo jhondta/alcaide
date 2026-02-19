@@ -27,6 +27,7 @@ config :alcaide,
 
   # Auxiliary services (each runs in its own persistent jail).
   # Remove or comment out this section if your app doesn't need a database.
+  # The database jail gets IP 10.0.0.4 on the lo1 interface.
   accessories: [
     db: [
       type: :postgresql,

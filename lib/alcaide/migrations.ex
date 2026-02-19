@@ -6,7 +6,7 @@ defmodule Alcaide.Migrations do
   which is the standard convention from the Phoenix deployment guide.
   """
 
-  alias Alcaide.{SSH, Jail, Config, Output}
+  alias Alcaide.{SSH, Jail, Config, Shell, Output}
 
   @doc """
   Runs Ecto migrations in the given jail slot.
@@ -65,13 +65,8 @@ defmodule Alcaide.Migrations do
   defp build_env_string(config) do
     config.env
     |> Enum.map(fn {key, value} ->
-      "#{key}=#{shell_escape(value)}"
+      "#{key}=#{Shell.escape(value)}"
     end)
     |> Enum.join(" ")
-  end
-
-  defp shell_escape(value) do
-    escaped = String.replace(to_string(value), "'", "'\\''")
-    "'#{escaped}'"
   end
 end

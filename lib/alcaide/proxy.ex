@@ -7,7 +7,7 @@ defmodule Alcaide.Proxy do
   via Let's Encrypt when a domain is configured.
   """
 
-  alias Alcaide.{SSH, Jail, Output}
+  alias Alcaide.{SSH, Jail, Shell, Output}
 
   @caddyfile_path "/usr/local/etc/caddy/Caddyfile"
 
@@ -58,7 +58,7 @@ defmodule Alcaide.Proxy do
   def write_and_reload!(conn, caddyfile_content) do
     Output.info("Writing Caddyfile to #{@caddyfile_path}...")
 
-    escaped = shell_escape(caddyfile_content)
+    escaped = Shell.escape(caddyfile_content)
     SSH.run!(conn, "printf '%s' #{escaped} > #{@caddyfile_path}")
 
     Output.info("Reloading Caddy...")
@@ -77,7 +77,7 @@ defmodule Alcaide.Proxy do
   def restore!(conn, previous_content) do
     Output.info("Restoring previous Caddyfile...")
 
-    escaped = shell_escape(previous_content)
+    escaped = Shell.escape(previous_content)
     SSH.run!(conn, "printf '%s' #{escaped} > #{@caddyfile_path}")
     SSH.run!(conn, "service caddy reload")
 
@@ -85,8 +85,4 @@ defmodule Alcaide.Proxy do
     :ok
   end
 
-  defp shell_escape(value) do
-    escaped = String.replace(value, "'", "'\\''")
-    "'#{escaped}'"
-  end
 end

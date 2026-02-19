@@ -28,7 +28,9 @@ defmodule Alcaide.Release do
         create_tarball(app)
 
       {_, exit_code} ->
-        {:error, "mix release failed with exit code #{exit_code}"}
+        {:error,
+         "mix release failed with exit code #{exit_code}. " <>
+           "Check that `MIX_ENV=prod mix release` works locally."}
     end
   end
 

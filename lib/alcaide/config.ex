@@ -165,14 +165,14 @@ defmodule Alcaide.Config do
 
   defp require_key(opts, key) do
     case Keyword.get(opts, key) do
-      nil -> {:error, "Missing required key :#{key} in deploy.exs"}
+      nil -> {:error, "Missing required key :#{key} in deploy.exs. See deploy.exs.example for a complete template."}
       value -> {:ok, value}
     end
   end
 
   defp require_nested_key(opts, key, parent) do
     case Keyword.get(opts, key) do
-      nil -> {:error, "Missing required key :#{key} in :#{parent} configuration"}
+      nil -> {:error, "Missing required key :#{key} in :#{parent} configuration. See deploy.exs.example for a complete template."}
       value -> {:ok, value}
     end
   end

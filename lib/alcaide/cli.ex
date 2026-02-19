@@ -29,8 +29,8 @@ defmodule Alcaide.CLI do
   def main(args) do
     {opts, commands, _invalid} =
       OptionParser.parse(args,
-        strict: [config: :string, verbose: :boolean, follow: :boolean, lines: :integer],
-        aliases: [c: :config, v: :verbose, f: :follow, n: :lines]
+        strict: [config: :string, follow: :boolean, lines: :integer],
+        aliases: [c: :config, f: :follow, n: :lines]
       )
 
     config_path = Keyword.get(opts, :config, "deploy.exs")
@@ -105,7 +105,7 @@ defmodule Alcaide.CLI do
     current = Jail.current_slot(conn, config)
 
     unless current do
-      raise "No active jail found. Nothing to roll back to."
+      raise "No active jail found. Run `alcaide deploy` first."
     end
 
     # 2. Determine the other slot
@@ -114,7 +114,7 @@ defmodule Alcaide.CLI do
     # 3. Verify the target jail exists on disk
     unless Jail.jail_exists?(conn, config, target) do
       raise "Previous jail (#{Jail.jail_name(config, target)}) does not exist. " <>
-              "Rollback is only possible if the previous jail was preserved."
+              "Rollback requires a preserved jail from a previous deploy. A new deploy is needed."
     end
 
     Output.info(
@@ -161,7 +161,7 @@ defmodule Alcaide.CLI do
     slot = Jail.current_slot(conn, config)
 
     unless slot do
-      Output.error("No active jail found.")
+      Output.error("No active jail found. Run `alcaide deploy` first.")
       System.halt(1)
     end
 
@@ -198,7 +198,7 @@ defmodule Alcaide.CLI do
     slot = Jail.current_slot(conn, config)
 
     unless slot do
-      Output.error("No active jail found.")
+      Output.error("No active jail found. Run `alcaide deploy` first.")
       System.halt(1)
     end
 
@@ -329,7 +329,6 @@ defmodule Alcaide.CLI do
 
     Options:
       -c, --config PATH    Path to config file (default: deploy.exs)
-      -v, --verbose        Verbose output
       -f, --follow         Follow logs in real time (for logs command)
       -n, --lines N        Number of log lines to show (default: 100)
     """)

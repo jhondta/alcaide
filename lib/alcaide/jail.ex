@@ -6,7 +6,7 @@ defmodule Alcaide.Jail do
   alternate between them, ensuring zero-downtime rotation.
   """
 
-  alias Alcaide.{SSH, Output}
+  alias Alcaide.{SSH, Shell, Output}
 
   @type slot :: :blue | :green
 
@@ -36,6 +36,18 @@ defmodule Alcaide.Jail do
   def slot_ip(slot), do: Map.fetch!(@slot_ips, slot)
 
   @doc """
+  Returns the list of currently running jail names on the server.
+  """
+  @spec list_active(SSH.t()) :: [String.t()]
+  def list_active(conn) do
+    {:ok, output, _} = SSH.run(conn, "jls -q name 2>/dev/null || true")
+
+    output
+    |> String.trim()
+    |> String.split("\n", trim: true)
+  end
+
+  @doc """
   Determines the next deployment slot based on currently running jails.
 
   Returns `{:ok, next_slot, current_slot_or_nil}`.
@@ -47,12 +59,7 @@ defmodule Alcaide.Jail do
   @spec determine_next_slot(SSH.t(), Alcaide.Config.t()) ::
           {:ok, slot(), slot() | nil}
   def determine_next_slot(conn, config) do
-    {:ok, output, _} = SSH.run(conn, "jls -q name 2>/dev/null || true")
-
-    active_jails =
-      output
-      |> String.trim()
-      |> String.split("\n", trim: true)
+    active_jails = list_active(conn)
 
     app = Atom.to_string(config.app)
     blue_name = "#{app}_blue"
@@ -162,7 +169,7 @@ defmodule Alcaide.Jail do
     env_str =
       config.env
       |> Enum.map(fn {key, value} ->
-        "#{key}=#{shell_escape(value)}"
+        "#{key}=#{Shell.escape(value)}"
       end)
       |> Enum.join(" ")
 
@@ -197,13 +204,7 @@ defmodule Alcaide.Jail do
   """
   @spec current_slot(SSH.t(), Alcaide.Config.t()) :: slot() | nil
   def current_slot(conn, config) do
-    {:ok, output, _} = SSH.run(conn, "jls -q name 2>/dev/null || true")
-
-    active_jails =
-      output
-      |> String.trim()
-      |> String.split("\n", trim: true)
-
+    active_jails = list_active(conn)
     app = Atom.to_string(config.app)
 
     cond do
@@ -248,9 +249,4 @@ defmodule Alcaide.Jail do
     :ok
   end
 
-  # Escapes a value for safe use in shell commands using single quotes.
-  defp shell_escape(value) do
-    escaped = String.replace(to_string(value), "'", "'\\''")
-    "'#{escaped}'"
-  end
 end
