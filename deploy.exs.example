@@ -11,8 +11,9 @@ config :alcaide,
     port: 22
   ],
 
-  # Public domain (used for TLS with Let's Encrypt in a future stage)
-  # domain: "myapp.example.com",
+  # Public domain — Caddy will auto-provision TLS via Let's Encrypt.
+  # If omitted or nil, Caddy serves on :80 (HTTP-only, useful for staging).
+  domain: "myapp.example.com",
 
   # Application jail configuration
   app_jail: [

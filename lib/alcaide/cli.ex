@@ -15,6 +15,7 @@ defmodule Alcaide.CLI do
     Pipeline.Steps.InstallRelease,
     Pipeline.Steps.StartJail,
     Pipeline.Steps.HealthCheck,
+    Pipeline.Steps.UpdateProxy,
     Pipeline.Steps.CleanupOldJail
   ]
 
@@ -125,6 +126,18 @@ defmodule Alcaide.CLI do
       echo "Base template already exists, skipping download"
     fi
     """)
+
+    # 7. Install and configure Caddy reverse proxy
+    Output.info("Installing Caddy reverse proxy...")
+    SSH.run!(conn, "pkg install -y caddy")
+
+    Output.info("Writing initial Caddyfile...")
+    initial_caddyfile = Alcaide.Proxy.generate_caddyfile(config, :blue)
+    Alcaide.Proxy.write_and_reload!(conn, initial_caddyfile)
+
+    Output.info("Enabling Caddy service...")
+    SSH.run!(conn, "sysrc caddy_enable=YES")
+    SSH.run!(conn, "service caddy start 2>/dev/null || service caddy reload")
   end
 
   defp usage do
