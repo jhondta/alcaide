@@ -105,9 +105,10 @@ mix alcaide.setup
 What it does:
 1. Verifies the server is running FreeBSD and detects architecture.
 2. Enables the jail subsystem and configures the `lo1` loopback interface.
-3. Downloads and extracts the FreeBSD base system template.
-4. Installs and configures Caddy as a reverse proxy.
-5. Provisions accessory jails (PostgreSQL, etc.) if configured.
+3. Configures NAT via PF so jails can reach the internet.
+4. Downloads and extracts the FreeBSD base system template.
+5. Installs and configures Caddy as a reverse proxy.
+6. Provisions accessory jails (PostgreSQL, etc.) if configured.
 
 ### `alcaide deploy`
 

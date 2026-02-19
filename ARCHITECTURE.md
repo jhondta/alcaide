@@ -111,12 +111,13 @@ Steps:
 1. Connect to the server via SSH and verify it is FreeBSD.
 2. Enable the jail subsystem in `/etc/rc.conf`.
 3. Create the `lo1` loopback interface with IP aliases for the jails.
-4. Download the FreeBSD base system (`base.txz`) on the server from the official mirrors via `fetch`, and extract it as a reusable template.
-5. Install Caddy on the host server via `pkg install caddy`.
-6. Write the base Caddy configuration (`/usr/local/etc/caddy/Caddyfile`).
-7. Start and enable Caddy as an rc service.
-8. Provision accessory jails (database, etc.).
-9. Initialize the database if applicable.
+4. Configure NAT via PF (packet filter) so jails on `lo1` can reach the internet. Auto-detects the public interface, enables IP forwarding, and adds a NAT rule to `/etc/pf.conf`.
+5. Download the FreeBSD base system (`base.txz`) on the server from the official mirrors via `fetch`, and extract it as a reusable template.
+6. Install Caddy on the host server via `pkg install caddy`.
+7. Write the base Caddy configuration (`/usr/local/etc/caddy/Caddyfile`).
+8. Start and enable Caddy as an rc service.
+9. Provision accessory jails (database, etc.).
+10. Initialize the database if applicable.
 
 ### `alcaide deploy`
 

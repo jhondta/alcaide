@@ -5,7 +5,7 @@ defmodule Alcaide.CLI do
   Parses arguments and dispatches to the appropriate command.
   """
 
-  alias Alcaide.{Config, SSH, Output, Pipeline, Jail, Proxy, Secrets, HealthCheck}
+  alias Alcaide.{Config, SSH, Shell, Output, Pipeline, Jail, Proxy, Secrets, HealthCheck}
 
   @deploy_steps [
     Pipeline.Steps.DestroyStaleJail,
@@ -259,12 +259,16 @@ defmodule Alcaide.CLI do
     SSH.run!(conn, "ifconfig lo1 create 2>/dev/null || true")
     SSH.run!(conn, "ifconfig lo1 alias 10.0.0.1/24 2>/dev/null || true")
 
-    # 5. Create directory structure
+    # 5. Configure NAT for jail internet access
+    Output.info("Configuring NAT for jail network...")
+    configure_nat(conn)
+
+    # 6. Create directory structure
     base_path = config.app_jail.base_path
     Output.info("Creating directory structure at #{base_path}...")
     SSH.run!(conn, "mkdir -p #{base_path}/.templates #{base_path}/.releases")
 
-    # 6. Download and extract base system template
+    # 7. Download and extract base system template
     version = config.app_jail.freebsd_version
     url = "https://download.freebsd.org/releases/#{arch}/#{version}/base.txz"
 
@@ -282,7 +286,7 @@ defmodule Alcaide.CLI do
     fi
     """)
 
-    # 7. Install and configure Caddy reverse proxy
+    # 8. Install and configure Caddy reverse proxy
     Output.info("Installing Caddy reverse proxy...")
     SSH.run!(conn, "pkg install -y caddy")
 
@@ -294,7 +298,7 @@ defmodule Alcaide.CLI do
     SSH.run!(conn, "sysrc caddy_enable=YES")
     SSH.run!(conn, "service caddy start 2>/dev/null || service caddy reload")
 
-    # 8. Provision accessories (database, etc.)
+    # 9. Provision accessories (database, etc.)
     provision_accessories(conn, config)
   end
 
@@ -303,6 +307,37 @@ defmodule Alcaide.CLI do
       nil -> :ok
       accessory -> Alcaide.Accessories.ensure_running(conn, config, accessory)
     end
+  end
+
+  defp configure_nat(conn) do
+    # Detect public interface (the one with the default route)
+    {:ok, iface_output, _} = SSH.run(conn, "route -n get default | awk '/interface:/{print $2}'")
+    public_iface = String.trim(iface_output)
+
+    if public_iface == "" do
+      raise "Could not detect public network interface. Check that the server has a default route."
+    end
+
+    Output.info("Detected public interface: #{public_iface}")
+
+    # Enable IP forwarding
+    SSH.run!(conn, "sysctl net.inet.ip.forwarding=1")
+    SSH.run!(conn, "sysrc gateway_enable=YES")
+
+    # Configure PF NAT rule (idempotent — checks for marker comment)
+    nat_rule =
+      "\n# alcaide NAT — allow jails on lo1 to reach the internet\n" <>
+        "nat on #{public_iface} from 10.0.0.0/24 to any -> (#{public_iface})\n"
+
+    escaped_rule = Shell.escape(nat_rule)
+
+    SSH.run!(conn, "grep -q 'alcaide NAT' /etc/pf.conf 2>/dev/null || printf '%s' #{escaped_rule} >> /etc/pf.conf")
+
+    # Enable and load PF
+    SSH.run!(conn, "sysrc pf_enable=YES")
+    SSH.run!(conn, "pfctl -f /etc/pf.conf 2>/dev/null || service pf start")
+
+    Output.success("NAT configured on #{public_iface}")
   end
 
   defp provision_accessories(conn, config) do
