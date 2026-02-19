@@ -129,6 +129,9 @@ defmodule Alcaide.Jail do
       persist
     """)
 
+    # Mount devfs so the jail has /dev/null, /dev/random, etc.
+    SSH.run!(conn, "mount -t devfs devfs #{path}/dev")
+
     Output.success("Jail #{name} started")
     :ok
   rescue
@@ -243,6 +246,7 @@ defmodule Alcaide.Jail do
     jail_path = "#{config.app_jail.base_path}/#{name}"
 
     Output.info("Destroying jail #{name}...")
+    SSH.run(conn, "umount #{jail_path}/dev 2>/dev/null || true")
     SSH.run(conn, "jail -r #{name} 2>/dev/null || true")
     SSH.run!(conn, "rm -rf #{jail_path}")
     Output.success("Jail #{name} destroyed")

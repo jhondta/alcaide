@@ -60,8 +60,9 @@ defmodule Alcaide.Accessories do
     """)
 
     # 3. Stop jail if running (so it picks up fresh resolv.conf on restart)
-    SSH.run(conn, "jail -r #{name} 2>/dev/null || true")
+    SSH.run(conn, "umount #{jail_path}/dev 2>/dev/null || true")
     SSH.run(conn, "umount #{jail_path}#{jail_volume} 2>/dev/null || true")
+    SSH.run(conn, "jail -r #{name} 2>/dev/null || true")
 
     # Always refresh resolv.conf so DNS works even on re-runs
     SSH.run!(conn, "cp /etc/resolv.conf #{jail_path}/etc/resolv.conf")
@@ -159,6 +160,16 @@ defmodule Alcaide.Accessories do
       echo "Jail started"
     else
       echo "Jail already running"
+    fi
+    """)
+
+    # Mount devfs so the jail has /dev/null, /dev/random, etc.
+    SSH.run!(conn, """
+    if ! mount | grep -q '#{jail_path}/dev'; then
+      mount -t devfs devfs #{jail_path}/dev
+      echo "devfs mounted"
+    else
+      echo "devfs already mounted"
     fi
     """)
 
