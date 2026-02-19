@@ -156,6 +156,7 @@ defmodule Alcaide.Accessories do
         ip4.addr="lo1|#{@db_ip}/32" \
         host.hostname=#{name} \
         allow.raw_sockets \
+        allow.sysvipc \
         persist
       echo "Jail started"
     else
