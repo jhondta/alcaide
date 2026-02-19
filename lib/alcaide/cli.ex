@@ -14,6 +14,7 @@ defmodule Alcaide.CLI do
     Pipeline.Steps.DetermineSlot,
     Pipeline.Steps.LoadSecrets,
     Pipeline.Steps.CreateJail,
+    Pipeline.Steps.InstallRuntime,
     Pipeline.Steps.InstallRelease,
     Pipeline.Steps.StartJail,
     Pipeline.Steps.RunMigrations,

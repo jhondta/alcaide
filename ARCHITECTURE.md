@@ -128,13 +128,14 @@ Steps (see Pipeline section below):
 2. Upload the release to the server.
 3. Determine which jail comes next (blue or green). If this is the first deploy, there is no previous jail.
 4. Create the new jail by cloning the base system template.
-5. Install the release inside the new jail.
-6. Start the new jail.
-7. Run migrations from the new jail.
-8. Verify the application responds (health check).
-9. Update the Caddy configuration to point to the new jail.
-10. Reload Caddy (zero downtime).
-11. Stop and destroy the previous jail (if it exists).
+5. Install the Erlang runtime (`erlang-runtimeNN`) inside the jail via `pkg install`. The OTP version is auto-detected from the local system.
+6. Install the release inside the new jail.
+7. Start the new jail.
+8. Run migrations from the new jail.
+9. Verify the application responds (health check).
+10. Update the Caddy configuration to point to the new jail.
+11. Reload Caddy (zero downtime).
+12. Stop and destroy the previous jail (if it exists).
 
 ### `alcaide rollback`
 

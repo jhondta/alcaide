@@ -35,6 +35,26 @@ Then fetch the dependency:
 mix deps.get
 ```
 
+### Configure the release
+
+Since Alcaide deploys to FreeBSD, the release must not include ERTS binaries compiled for your local OS. Add `include_erts: false` to your release configuration:
+
+```elixir
+# mix.exs
+def project do
+  [
+    ...,
+    releases: [
+      my_app: [
+        include_erts: false
+      ]
+    ]
+  ]
+end
+```
+
+Alcaide will install the matching Erlang runtime inside the jail automatically.
+
 ## Quick start
 
 ### 1. Create the configuration file

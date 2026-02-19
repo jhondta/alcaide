@@ -110,6 +110,46 @@ defmodule Alcaide.Jail do
   end
 
   @doc """
+  Installs the Erlang runtime inside the jail via `pkg install`.
+
+  Starts the jail temporarily, installs the matching `erlang-runtimeNN`
+  package, then stops the jail. This is needed when the release is built
+  with `include_erts: false`.
+  """
+  @spec install_runtime(SSH.t(), Alcaide.Config.t(), slot()) :: :ok | {:error, String.t()}
+  def install_runtime(conn, config, slot) do
+    name = jail_name(config, slot)
+    ip = slot_ip(slot)
+    path = "#{config.app_jail.base_path}/#{name}"
+
+    otp_version = :erlang.system_info(:otp_release) |> List.to_string()
+
+    Output.info("Installing erlang-runtime#{otp_version} in jail #{name}...")
+
+    # Start jail temporarily for pkg install
+    SSH.run!(conn, """
+    jail -c name=#{name} \
+      path=#{path} \
+      ip4.addr="lo1|#{ip}/32" \
+      host.hostname=#{name} \
+      allow.raw_sockets \
+      persist
+    """)
+
+    SSH.run!(conn, "mount -t devfs devfs #{path}/dev")
+    SSH.run!(conn, "jexec #{name} pkg install -y erlang-runtime#{otp_version}")
+
+    # Stop jail — StartJail step will restart it later
+    SSH.run(conn, "umount #{path}/dev 2>/dev/null || true")
+    SSH.run(conn, "jail -r #{name} 2>/dev/null || true")
+
+    Output.success("Erlang runtime installed")
+    :ok
+  rescue
+    e -> {:error, "Failed to install runtime: #{Exception.message(e)}"}
+  end
+
+  @doc """
   Starts a jail with the given slot's IP address.
   """
   @spec start(SSH.t(), Alcaide.Config.t(), slot()) :: :ok | {:error, String.t()}
@@ -248,6 +288,8 @@ defmodule Alcaide.Jail do
     Output.info("Destroying jail #{name}...")
     SSH.run(conn, "umount #{jail_path}/dev 2>/dev/null || true")
     SSH.run(conn, "jail -r #{name} 2>/dev/null || true")
+    # Remove system immutable flags (schg) before deleting
+    SSH.run(conn, "chflags -R noschg #{jail_path} 2>/dev/null || true")
     SSH.run!(conn, "rm -rf #{jail_path}")
     Output.success("Jail #{name} destroyed")
     :ok
