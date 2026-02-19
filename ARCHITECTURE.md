@@ -74,7 +74,7 @@ config :alcaide,
     # Base directory on the server where jails will live
     base_path: "/jails",
     # FreeBSD version used to download the base system
-    freebsd_version: "14.1-RELEASE",
+    freebsd_version: "15.0-RELEASE",
     # Internal port exposed by Phoenix
     port: 4000
   ],
@@ -83,7 +83,7 @@ config :alcaide,
   accessories: [
     db: [
       type: :postgresql,
-      version: "16",
+      version: "18",
       # Host server directory mounted inside the jail for persistence
       volume: "/data/postgres:/var/db/postgresql",
       port: 5432
@@ -215,7 +215,7 @@ During `alcaide setup`, the FreeBSD base system is downloaded on the server:
 
 ```bash
 # Download base.txz from the official FreeBSD mirrors
-fetch https://download.freebsd.org/releases/amd64/14.1-RELEASE/base.txz \
+fetch https://download.freebsd.org/releases/amd64/15.0-RELEASE/base.txz \
   -o /jails/.templates/base.txz
 
 # Extract as reusable template

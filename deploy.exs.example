@@ -20,7 +20,7 @@ config :alcaide,
     # Base directory on the server where jails will live
     base_path: "/jails",
     # FreeBSD version for the base system template
-    freebsd_version: "14.2-RELEASE",
+    freebsd_version: "15.0-RELEASE",
     # Internal port exposed by Phoenix
     port: 4000
   ],
@@ -31,7 +31,7 @@ config :alcaide,
   accessories: [
     db: [
       type: :postgresql,
-      version: "16",
+      version: "18",
       # Host path : Jail path — data persists on the host via nullfs
       volume: "/data/postgres:/var/db/postgresql",
       port: 5432

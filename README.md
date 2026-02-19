@@ -56,7 +56,7 @@ config :alcaide,
   domain: "myapp.example.com",
   app_jail: [
     base_path: "/jails",
-    freebsd_version: "14.2-RELEASE",
+    freebsd_version: "15.0-RELEASE",
     port: 4000
   ],
   env: [
@@ -224,7 +224,7 @@ The `deploy.exs` file uses Elixir's `Config` module. All options are under the `
 | `domain` | string | no | `nil` | Public domain for Caddy TLS. If omitted, serves HTTP on port 80 |
 | `app_jail` | keyword | yes | — | Jail configuration |
 | `app_jail.base_path` | string | yes | — | Directory on the server where jails are stored |
-| `app_jail.freebsd_version` | string | yes | — | FreeBSD version for the base template (e.g., `"14.2-RELEASE"`) |
+| `app_jail.freebsd_version` | string | yes | — | FreeBSD version for the base template (e.g., `"15.0-RELEASE"`) |
 | `app_jail.port` | integer | no | `4000` | Internal port the Phoenix app listens on |
 | `accessories` | keyword | no | `[]` | Auxiliary services, each in its own jail |
 | `env` | keyword | no | `[]` | Environment variables injected into the app jail |
@@ -237,7 +237,7 @@ Each accessory runs in a persistent jail. Currently supported: `:postgresql`.
 accessories: [
   db: [
     type: :postgresql,
-    version: "16",
+    version: "18",
     volume: "/data/postgres:/var/db/postgresql",
     port: 5432
   ]
