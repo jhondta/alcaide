@@ -99,7 +99,14 @@ defmodule Alcaide.SSH do
     |> File.stream!(chunk_size)
     |> Stream.with_index()
     |> Enum.each(fn {chunk, index} ->
-      :ok = :ssh_sftp.write(sftp, handle, chunk, :infinity)
+      case :ssh_sftp.write(sftp, handle, chunk, :infinity) do
+        :ok -> :ok
+        {:error, reason} ->
+          :ssh_sftp.close(sftp, handle)
+          :ssh_sftp.stop_channel(sftp)
+          raise "SFTP write failed at chunk #{index}: #{inspect(reason)}"
+      end
+
       uploaded = min((index + 1) * chunk_size, file_size)
       percent = trunc(uploaded / file_size * 100)
 
