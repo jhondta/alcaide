@@ -206,7 +206,8 @@ defmodule Alcaide.CLI do
     name = Jail.jail_name(config, slot)
     Output.info("Running in #{name}: #{command}")
 
-    SSH.run!(conn, "jexec #{name} /bin/sh -c 'cd /app && #{command}'")
+    escaped = Shell.escape("cd /app && #{command}")
+    SSH.run!(conn, "jexec #{name} /bin/sh -c #{escaped}")
 
     SSH.disconnect(conn)
   rescue
