@@ -339,9 +339,9 @@ defmodule Alcaide.CLI do
 
     SSH.run!(conn, "printf '%s' #{escaped_rules} >> /etc/pf.conf")
 
-    # Enable and load PF
+    # Enable and start PF
     SSH.run!(conn, "sysrc pf_enable=YES")
-    SSH.run!(conn, "pfctl -f /etc/pf.conf 2>/dev/null || service pf start")
+    SSH.run!(conn, "service pf start 2>/dev/null || pfctl -ef /etc/pf.conf")
 
     Output.success("NAT configured on #{public_iface}")
   end
