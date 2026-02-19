@@ -29,8 +29,8 @@ defmodule Alcaide.CLI do
   def main(args) do
     {opts, commands, _invalid} =
       OptionParser.parse(args,
-        strict: [config: :string, verbose: :boolean],
-        aliases: [c: :config, v: :verbose]
+        strict: [config: :string, verbose: :boolean, follow: :boolean, lines: :integer],
+        aliases: [c: :config, v: :verbose, f: :follow, n: :lines]
       )
 
     config_path = Keyword.get(opts, :config, "deploy.exs")
@@ -41,6 +41,8 @@ defmodule Alcaide.CLI do
       ["rollback"] -> rollback(config_path)
       ["secrets", "init"] -> secrets_init()
       ["secrets", "edit"] -> secrets_edit()
+      ["logs"] -> logs(config_path, opts)
+      ["run" | cmd_parts] -> run_remote(config_path, Enum.join(cmd_parts, " "))
       _ -> usage()
     end
   end
@@ -152,6 +154,66 @@ defmodule Alcaide.CLI do
     end
   end
 
+  defp logs(config_path, opts) do
+    config = Config.load!(config_path)
+    {:ok, conn} = SSH.connect(config.server)
+
+    slot = Jail.current_slot(conn, config)
+
+    unless slot do
+      Output.error("No active jail found.")
+      System.halt(1)
+    end
+
+    name = Jail.jail_name(config, slot)
+    app_name = Atom.to_string(config.app)
+    follow = Keyword.get(opts, :follow, false)
+    lines = Keyword.get(opts, :lines, 100)
+
+    log_path = "/app/tmp/log/#{app_name}.log"
+
+    if follow do
+      Output.info("Following logs from #{name} (Ctrl+C to stop)...")
+      SSH.run_stream(conn, "jexec #{name} tail -f -n #{lines} #{log_path}")
+    else
+      SSH.run!(conn, "jexec #{name} tail -n #{lines} #{log_path}")
+    end
+
+    SSH.disconnect(conn)
+  rescue
+    e ->
+      Output.error("Logs failed: #{Exception.message(e)}")
+      System.halt(1)
+  end
+
+  defp run_remote(config_path, command) do
+    if command == "" do
+      Output.error("No command specified. Usage: alcaide run \"<command>\"")
+      System.halt(1)
+    end
+
+    config = Config.load!(config_path)
+    {:ok, conn} = SSH.connect(config.server)
+
+    slot = Jail.current_slot(conn, config)
+
+    unless slot do
+      Output.error("No active jail found.")
+      System.halt(1)
+    end
+
+    name = Jail.jail_name(config, slot)
+    Output.info("Running in #{name}: #{command}")
+
+    SSH.run!(conn, "jexec #{name} /bin/sh -c 'cd /app && #{command}'")
+
+    SSH.disconnect(conn)
+  rescue
+    e ->
+      Output.error("Remote command failed: #{Exception.message(e)}")
+      System.halt(1)
+  end
+
   defp secrets_init do
     Secrets.init!()
   rescue
@@ -259,12 +321,17 @@ defmodule Alcaide.CLI do
       alcaide deploy [options]    Deploy the application
       alcaide rollback [options]  Roll back to the previous deployment
 
+      alcaide logs [options]      Show application logs from the active jail
+      alcaide run "<command>"     Run a command inside the active jail
+
       alcaide secrets init        Generate master key and encrypted secrets file
       alcaide secrets edit        Edit secrets in $EDITOR and re-encrypt
 
     Options:
       -c, --config PATH    Path to config file (default: deploy.exs)
       -v, --verbose        Verbose output
+      -f, --follow         Follow logs in real time (for logs command)
+      -n, --lines N        Number of log lines to show (default: 100)
     """)
   end
 end

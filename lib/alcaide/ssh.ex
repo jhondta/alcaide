@@ -114,6 +114,21 @@ defmodule Alcaide.SSH do
   end
 
   @doc """
+  Executes a long-running command, streaming output to the terminal.
+
+  Unlike `run/2`, this function does not accumulate output and blocks
+  until the remote process exits or the caller is interrupted (e.g.
+  Ctrl+C for `tail -f`). Returns `:ok` when the channel closes.
+  """
+  @spec run_stream(t(), String.t()) :: :ok
+  def run_stream(%__MODULE__{connection: conn_ref, host: host}, command) do
+    {:ok, channel} = :ssh_connection.session_channel(conn_ref, :infinity)
+    :success = :ssh_connection.exec(conn_ref, channel, to_charlist(command), :infinity)
+
+    stream_output(conn_ref, channel, host)
+  end
+
+  @doc """
   Closes the SSH connection.
   """
   @spec disconnect(t()) :: :ok
@@ -142,6 +157,23 @@ defmodule Alcaide.SSH do
     after
       60_000 ->
         {:ok, acc, exit_code || -1}
+    end
+  end
+
+  defp stream_output(conn_ref, channel, host) do
+    receive do
+      {:ssh_cm, ^conn_ref, {:data, ^channel, _type, data}} ->
+        IO.write(IO.chardata_to_string(data))
+        stream_output(conn_ref, channel, host)
+
+      {:ssh_cm, ^conn_ref, {:eof, ^channel}} ->
+        stream_output(conn_ref, channel, host)
+
+      {:ssh_cm, ^conn_ref, {:exit_status, ^channel, _code}} ->
+        stream_output(conn_ref, channel, host)
+
+      {:ssh_cm, ^conn_ref, {:closed, ^channel}} ->
+        :ok
     end
   end
 end
