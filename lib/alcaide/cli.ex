@@ -203,10 +203,18 @@ defmodule Alcaide.CLI do
       System.halt(1)
     end
 
+    config = load_secrets_for_rollback(config)
+
     name = Jail.jail_name(config, slot)
     Output.info("Running in #{name}: #{command}")
 
-    escaped = Shell.escape("cd /app && #{command}")
+    env_str =
+      config.env
+      |> Enum.map(fn {key, value} -> "#{key}=#{Shell.escape(value)}" end)
+      |> Enum.join(" ")
+
+    env_prefix = if env_str == "", do: "", else: "#{env_str} "
+    escaped = Shell.escape("cd /app && #{env_prefix}#{command}")
     SSH.run!(conn, "jexec #{name} /bin/sh -c #{escaped}")
 
     SSH.disconnect(conn)
