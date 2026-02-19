@@ -17,15 +17,7 @@ config :alcaide,
     db: [
       type: :postgresql,
       version: "16",
-      volume: "/data/postgres:/var/db/postgresql",
-      port: 5432,
-      user: "test_user",
-      password: "test_pass",
-      database: "test_app_production"
+      volume: "/data/postgres:/var/db/postgresql"
     ]
   ],
-  env: [
-    DATABASE_URL: "ecto://test_user:test_pass@10.0.0.4/test_app_production",
-    PHX_HOST: "testapp.com",
-    PORT: "4000"
-  ]
+  env: []

@@ -95,7 +95,7 @@ defmodule Alcaide.Accessories do
     start_postgresql(conn, name, data_dir)
 
     # 9. Create application database and user
-    create_app_db_and_user(conn, config, name)
+    create_app_db_and_user(conn, config, name, accessory)
 
     Output.success("PostgreSQL accessory provisioned successfully")
     :ok
@@ -217,11 +217,11 @@ defmodule Alcaide.Accessories do
     Output.success("PostgreSQL running")
   end
 
-  defp create_app_db_and_user(conn, config, jail_name) do
+  defp create_app_db_and_user(conn, config, jail_name, accessory) do
     app = Atom.to_string(config.app)
-    db_name = "#{app}_prod"
-    db_user = "app"
-    db_password = "app"
+    db_name = accessory.database || "#{app}_prod"
+    db_user = accessory.user || "app"
+    db_password = accessory.password || "app"
 
     Output.info("Creating database user '#{db_user}' and database '#{db_name}'...")
 

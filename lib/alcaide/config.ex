@@ -8,7 +8,10 @@ defmodule Alcaide.Config do
           type: atom(),
           version: String.t(),
           volume: String.t(),
-          port: non_neg_integer()
+          port: non_neg_integer(),
+          user: String.t() | nil,
+          password: String.t() | nil,
+          database: String.t() | nil
         }
 
   @type t :: %__MODULE__{
@@ -158,7 +161,10 @@ defmodule Alcaide.Config do
          type: type,
          version: version,
          volume: volume,
-         port: Keyword.get(opts, :port, 5432)
+         port: Keyword.get(opts, :port, 5432),
+         user: Keyword.get(opts, :user),
+         password: Keyword.get(opts, :password),
+         database: Keyword.get(opts, :database)
        }}
     end
   end

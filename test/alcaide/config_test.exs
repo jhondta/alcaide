@@ -52,6 +52,19 @@ defmodule Alcaide.ConfigTest do
       assert db.version == "16"
       assert db.volume == "/data/postgres:/var/db/postgresql"
       assert db.port == 5432
+      assert db.user == "test_user"
+      assert db.password == "test_pass"
+      assert db.database == "test_app_production"
+    end
+
+    test "loads config with accessories using default credentials" do
+      {:ok, config} = Config.load("test/fixtures/deploy_with_db_defaults.exs")
+
+      [db] = config.accessories
+      assert db.type == :postgresql
+      assert db.user == nil
+      assert db.password == nil
+      assert db.database == nil
     end
 
     test "loads config without accessories (defaults to empty list)" do

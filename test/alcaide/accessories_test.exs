@@ -22,4 +22,24 @@ defmodule Alcaide.AccessoriesTest do
       assert Accessories.db_jail_name(@config) == "my_app_db"
     end
   end
+
+  describe "credential resolution" do
+    test "custom credentials are available from config" do
+      {:ok, config} = Alcaide.Config.load("test/fixtures/deploy_with_db.exs")
+      db = Alcaide.Config.postgresql_accessory(config)
+
+      assert db.user == "test_user"
+      assert db.password == "test_pass"
+      assert db.database == "test_app_production"
+    end
+
+    test "credentials default to nil when not provided" do
+      {:ok, config} = Alcaide.Config.load("test/fixtures/deploy_with_db_defaults.exs")
+      db = Alcaide.Config.postgresql_accessory(config)
+
+      assert db.user == nil
+      assert db.password == nil
+      assert db.database == nil
+    end
+  end
 end

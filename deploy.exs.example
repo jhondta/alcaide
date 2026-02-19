@@ -35,6 +35,13 @@ config :alcaide,
       # Host path : Jail path — data persists on the host via nullfs
       volume: "/data/postgres:/var/db/postgresql",
       port: 5432
+      # Optional: database credentials used during `alcaide setup`.
+      # Defaults: user "app", password "app", database "{app}_prod".
+      # For production, set a strong password here and use the same
+      # credentials in DATABASE_URL inside deploy.secrets.exs.
+      # user: "my_app",
+      # password: "strong_password",
+      # database: "my_app_prod"
     ]
   ],
 

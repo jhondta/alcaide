@@ -250,12 +250,15 @@ accessories: [
 | `version` | string | yes | Package version to install |
 | `volume` | string | yes | `host_path:jail_path` — data persists on the host via nullfs mount |
 | `port` | integer | no | Service port (default: `5432`) |
+| `user` | string | no | Database user created during setup (default: `"app"`) |
+| `password` | string | no | Password for the database user (default: `"app"`) |
+| `database` | string | no | Database name created during setup (default: `"{app}_prod"`) |
 
-The database jail gets IP `10.0.0.4` on the `lo1` interface. Use this IP in your `DATABASE_URL`:
+The database jail gets IP `10.0.0.4` on the `lo1` interface. The `user`, `password`, and `database` fields are used during `alcaide setup` to create the PostgreSQL role and database. The `DATABASE_URL` in `deploy.secrets.exs` is what the Phoenix app uses at runtime — both should use matching credentials:
 
 ```elixir
 # In deploy.secrets.exs
-DATABASE_URL: "ecto://my_app:password@10.0.0.4/my_app_prod"
+DATABASE_URL: "ecto://my_app:strong_password@10.0.0.4/my_app_prod"
 ```
 
 ## How it works
