@@ -342,7 +342,7 @@ The tool can be used in two ways:
 
 ```elixir
 # mix.exs
-{:alcaide, "~> 0.1", only: :dev}
+{:alcaide, github: "jhondta/alcaide", only: :dev}
 ```
 
 Used as a Mix task: `mix alcaide.deploy`

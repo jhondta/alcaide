@@ -12,6 +12,13 @@ defmodule Alcaide.MixProject do
       deps: deps(),
       escript: escript(),
       description: "Deploy Phoenix apps to FreeBSD servers using Jails",
+      package: package(),
+      source_url: "https://github.com/jhondta/alcaide",
+      homepage_url: "https://github.com/jhondta/alcaide",
+      docs: [
+        main: "readme",
+        extras: ["README.md", "ARCHITECTURE.md"]
+      ],
       test_paths: ["test"],
       test_pattern: "*_test.exs"
     ]
@@ -26,6 +33,14 @@ defmodule Alcaide.MixProject do
   defp deps do
     [
       {:ex_doc, "~> 0.34", only: :dev, runtime: false}
+    ]
+  end
+
+  defp package do
+    [
+      licenses: ["MIT"],
+      links: %{"GitHub" => "https://github.com/jhondta/alcaide"},
+      files: ~w(lib mix.exs README.md LICENSE deploy.exs.example)
     ]
   end
 

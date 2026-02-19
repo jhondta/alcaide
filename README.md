@@ -24,7 +24,7 @@ Add Alcaide to your Phoenix project as a dev dependency:
 # mix.exs
 defp deps do
   [
-    {:alcaide, "~> 0.1", only: :dev}
+    {:alcaide, github: "jhondta/alcaide", only: :dev}
   ]
 end
 ```
