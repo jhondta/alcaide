@@ -1,0 +1,33 @@
+import Config
+
+config :alcaide,
+  # Application name (must match your mix.exs :app)
+  app: :my_app,
+
+  # Target server
+  server: [
+    host: "192.168.1.100",
+    user: "deploy",
+    port: 22
+  ],
+
+  # Public domain (used for TLS with Let's Encrypt in a future stage)
+  # domain: "myapp.example.com",
+
+  # Application jail configuration
+  app_jail: [
+    # Base directory on the server where jails will live
+    base_path: "/jails",
+    # FreeBSD version for the base system template
+    freebsd_version: "14.2-RELEASE",
+    # Internal port exposed by Phoenix
+    port: 4000
+  ],
+
+  # Environment variables injected into the application jail
+  # Secret values should go in deploy.secrets.exs (encrypted) in a future stage
+  env: [
+    PHX_HOST: "myapp.example.com",
+    PORT: "4000",
+    SECRET_KEY_BASE: "generate-with-mix-phx-gen-secret"
+  ]
