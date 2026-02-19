@@ -95,14 +95,7 @@ defmodule Alcaide.Secrets do
       File.chmod!(tmp_path, 0o600)
 
       editor = System.get_env("EDITOR") || System.get_env("VISUAL") || "vi"
-      port = Port.open({:spawn, "#{editor} #{tmp_path}"}, [:binary, :nouse_stdio])
-
-      # Wait for the editor process to finish
-      receive do
-        {^port, {:exit_status, _}} -> :ok
-      after
-        :infinity -> :ok
-      end
+      {_, 0} = System.shell("#{editor} #{tmp_path}", into: IO.stream())
 
       updated = File.read!(tmp_path)
 
