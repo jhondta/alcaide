@@ -53,12 +53,14 @@ defmodule Alcaide.Accessories do
     SSH.run!(conn, """
     if [ ! -d #{jail_path} ]; then
       cp -a #{template_path} #{jail_path}
-      cp /etc/resolv.conf #{jail_path}/etc/resolv.conf
       echo "Database jail created"
     else
       echo "Database jail already exists, skipping"
     fi
     """)
+
+    # Always refresh resolv.conf so DNS works even on re-runs
+    SSH.run!(conn, "cp /etc/resolv.conf #{jail_path}/etc/resolv.conf")
 
     # 3. Create the mount point inside the jail
     SSH.run!(conn, "mkdir -p #{jail_path}#{jail_volume}")
