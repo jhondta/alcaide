@@ -70,27 +70,18 @@ defmodule Alcaide.SSH do
   end
 
   @doc """
-  Uploads a local file to a remote path via SFTP.
+  Uploads a local file to a remote path via SSH channel.
 
-  Uses chunked upload (1MB chunks) to handle large release tarballs.
+  Pipes the file content through `cat > path` on the remote server,
+  using the existing SSH connection. This avoids SFTP subsystem issues
+  that some server configurations exhibit.
   """
   @spec upload!(t(), String.t(), String.t()) :: :ok
   def upload!(%__MODULE__{connection: conn_ref, host: host}, local_path, remote_path) do
-    {:ok, sftp} = :ssh_sftp.start_channel(conn_ref)
-
     Alcaide.Output.info("Uploading #{Path.basename(local_path)} to #{host}:#{remote_path}")
 
-    remote_charlist = to_charlist(remote_path)
-
-    {:ok, handle} =
-      case :ssh_sftp.open(sftp, remote_charlist, [:write, :creat, :trunc]) do
-        {:ok, handle} ->
-          {:ok, handle}
-
-        {:error, reason} ->
-          :ssh_sftp.stop_channel(sftp)
-          raise "SFTP upload failed for #{remote_path}: #{inspect(reason)}"
-      end
+    {:ok, channel} = :ssh_connection.session_channel(conn_ref, :infinity)
+    :success = :ssh_connection.exec(conn_ref, channel, ~c"cat > #{remote_path}", :infinity)
 
     chunk_size = 1_048_576
     file_size = File.stat!(local_path).size
@@ -99,13 +90,7 @@ defmodule Alcaide.SSH do
     |> File.stream!(chunk_size)
     |> Stream.with_index()
     |> Enum.each(fn {chunk, index} ->
-      case :ssh_sftp.write(sftp, handle, chunk, :infinity) do
-        :ok -> :ok
-        {:error, reason} ->
-          :ssh_sftp.close(sftp, handle)
-          :ssh_sftp.stop_channel(sftp)
-          raise "SFTP write failed at chunk #{index}: #{inspect(reason)}"
-      end
+      :ok = :ssh_connection.send(conn_ref, channel, chunk, :infinity)
 
       uploaded = min((index + 1) * chunk_size, file_size)
       percent = trunc(uploaded / file_size * 100)
@@ -116,9 +101,11 @@ defmodule Alcaide.SSH do
       )
     end)
 
+    :ok = :ssh_connection.send_eof(conn_ref, channel)
     IO.puts(:stderr, "")
-    :ok = :ssh_sftp.close(sftp, handle)
-    :ssh_sftp.stop_channel(sftp)
+
+    # Wait for remote cat to finish
+    wait_for_close(conn_ref, channel)
     :ok
   end
 
@@ -162,6 +149,15 @@ defmodule Alcaide.SSH do
 
   defp format_ssh_error(reason),
     do: "#{inspect(reason)}. Check your SSH key at ~/.ssh/ and server configuration."
+
+  defp wait_for_close(conn_ref, channel) do
+    receive do
+      {:ssh_cm, ^conn_ref, {:closed, ^channel}} -> :ok
+      {:ssh_cm, ^conn_ref, _msg} -> wait_for_close(conn_ref, channel)
+    after
+      30_000 -> :ok
+    end
+  end
 
   defp collect_output(conn_ref, channel, host, acc, exit_code) do
     receive do
