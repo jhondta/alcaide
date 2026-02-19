@@ -95,7 +95,14 @@ defmodule Alcaide.Secrets do
       File.chmod!(tmp_path, 0o600)
 
       editor = System.get_env("EDITOR") || System.get_env("VISUAL") || "vi"
-      {_, 0} = System.shell("#{editor} #{tmp_path}", into: IO.stream())
+
+      # Redirect stdio to /dev/tty so interactive editors (vi, nano) get
+      # a real terminal even when Elixir captures stdio internally
+      exit_code = Mix.shell().cmd("#{editor} #{tmp_path} < /dev/tty > /dev/tty")
+
+      if exit_code != 0 do
+        raise "Editor exited with code #{exit_code}"
+      end
 
       updated = File.read!(tmp_path)
 
