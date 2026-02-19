@@ -241,19 +241,16 @@ defmodule Alcaide.Jail do
     '
     """)
 
+    env_vars = [{"PHX_SERVER", "true"} | config.env]
+
     env_str =
-      config.env
+      env_vars
       |> Enum.map(fn {key, value} ->
         "#{key}=#{Shell.escape(value)}"
       end)
       |> Enum.join(" ")
 
-    cmd =
-      if env_str == "" do
-        "jexec #{name} /bin/sh -c 'cd /app && bin/#{app_name} daemon'"
-      else
-        "jexec #{name} /bin/sh -c 'cd /app && #{env_str} bin/#{app_name} daemon'"
-      end
+    cmd = "jexec #{name} /bin/sh -c 'cd /app && #{env_str} bin/#{app_name} daemon'"
 
     SSH.run!(conn, cmd)
 

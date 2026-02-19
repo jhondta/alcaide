@@ -19,6 +19,17 @@ defmodule Alcaide.Release do
 
     Output.info("Building release for #{app}...")
 
+    # Build and digest static assets (CSS, JS) before creating the release.
+    # This is a no-op if the project has no assets.deploy alias defined.
+    case System.cmd("mix", ["assets.deploy"],
+           env: [{"MIX_ENV", "prod"}],
+           stderr_to_stdout: true,
+           into: IO.stream(:stdio, :line)
+         ) do
+      {_, 0} -> Output.success("Assets built")
+      {_, _} -> Output.info("No assets.deploy task found, skipping")
+    end
+
     case System.cmd("mix", ["release", "--overwrite"],
            env: [{"MIX_ENV", "prod"}],
            stderr_to_stdout: true,
