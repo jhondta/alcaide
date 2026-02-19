@@ -59,20 +59,24 @@ defmodule Alcaide.Accessories do
     fi
     """)
 
+    # 3. Stop jail if running (so it picks up fresh resolv.conf on restart)
+    SSH.run(conn, "jail -r #{name} 2>/dev/null || true")
+    SSH.run(conn, "umount #{jail_path}#{jail_volume} 2>/dev/null || true")
+
     # Always refresh resolv.conf so DNS works even on re-runs
     SSH.run!(conn, "cp /etc/resolv.conf #{jail_path}/etc/resolv.conf")
 
-    # 3. Create the mount point inside the jail
+    # 4. Create the mount point inside the jail
     SSH.run!(conn, "mkdir -p #{jail_path}#{jail_volume}")
 
-    # 4. Start jail with persist mode
+    # 5. Start jail with persist mode
     start_jail(conn, config, accessory)
 
-    # 5. Install PostgreSQL inside the jail
+    # 6. Install PostgreSQL inside the jail
     Output.info("Installing postgresql#{pg_version}-server in jail...")
     SSH.run!(conn, "jexec #{name} pkg install -y postgresql#{pg_version}-server")
 
-    # 6. Initialize database cluster (idempotent)
+    # 7. Initialize database cluster (idempotent)
     data_dir = "#{jail_volume}/data#{pg_version}"
 
     Output.info("Initializing PostgreSQL database cluster...")
@@ -90,13 +94,13 @@ defmodule Alcaide.Accessories do
     '
     """)
 
-    # 7. Configure PostgreSQL for network access
+    # 8. Configure PostgreSQL for network access
     configure_postgresql(conn, name, data_dir)
 
-    # 8. Start PostgreSQL
+    # 9. Start PostgreSQL
     start_postgresql(conn, name, data_dir)
 
-    # 9. Create application database and user
+    # 10. Create application database and user
     create_app_db_and_user(conn, config, name, accessory)
 
     Output.success("PostgreSQL accessory provisioned successfully")
