@@ -77,36 +77,24 @@ defmodule Alcaide.SSH do
   that some server configurations exhibit.
   """
   @spec upload!(t(), String.t(), String.t()) :: :ok
-  def upload!(%__MODULE__{connection: conn_ref, host: host}, local_path, remote_path) do
+  def upload!(%__MODULE__{host: host, user: user, port: port}, local_path, remote_path) do
     Alcaide.Output.info("Uploading #{Path.basename(local_path)} to #{host}:#{remote_path}")
 
-    {:ok, channel} = :ssh_connection.session_channel(conn_ref, :infinity)
-    :success = :ssh_connection.exec(conn_ref, channel, ~c"cat > #{remote_path}", :infinity)
+    scp_args = [
+      "-P", Integer.to_string(port),
+      "-o", "StrictHostKeyChecking=no",
+      local_path,
+      "#{user}@#{host}:#{remote_path}"
+    ]
 
-    chunk_size = 1_048_576
-    file_size = File.stat!(local_path).size
+    case System.cmd("scp", scp_args, stderr_to_stdout: true) do
+      {_, 0} ->
+        Alcaide.Output.success("Upload complete")
+        :ok
 
-    local_path
-    |> File.stream!(chunk_size)
-    |> Stream.with_index()
-    |> Enum.each(fn {chunk, index} ->
-      :ok = :ssh_connection.send(conn_ref, channel, chunk, :infinity)
-
-      uploaded = min((index + 1) * chunk_size, file_size)
-      percent = trunc(uploaded / file_size * 100)
-
-      IO.write(
-        :stderr,
-        "\r#{IO.ANSI.cyan()}[alcaide]#{IO.ANSI.reset()} Progress: #{percent}%"
-      )
-    end)
-
-    :ok = :ssh_connection.send_eof(conn_ref, channel)
-    IO.puts(:stderr, "")
-
-    # Wait for remote cat to finish
-    wait_for_close(conn_ref, channel)
-    :ok
+      {output, code} ->
+        raise "Upload failed (scp exit #{code}): #{String.trim(output)}"
+    end
   end
 
   @doc """
@@ -149,15 +137,6 @@ defmodule Alcaide.SSH do
 
   defp format_ssh_error(reason),
     do: "#{inspect(reason)}. Check your SSH key at ~/.ssh/ and server configuration."
-
-  defp wait_for_close(conn_ref, channel) do
-    receive do
-      {:ssh_cm, ^conn_ref, {:closed, ^channel}} -> :ok
-      {:ssh_cm, ^conn_ref, _msg} -> wait_for_close(conn_ref, channel)
-    after
-      30_000 -> :ok
-    end
-  end
 
   defp collect_output(conn_ref, channel, host, acc, exit_code) do
     receive do
