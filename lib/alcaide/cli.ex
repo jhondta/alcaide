@@ -324,14 +324,17 @@ defmodule Alcaide.CLI do
     SSH.run!(conn, "sysctl net.inet.ip.forwarding=1")
     SSH.run!(conn, "sysrc gateway_enable=YES")
 
-    # Configure PF NAT rule (idempotent — checks for marker comment)
-    nat_rule =
+    # Configure PF rules (idempotent — checks for marker comment)
+    # NAT translates outbound jail traffic; "pass all" preserves the server's
+    # default open policy so PF doesn't block SSH or other existing traffic.
+    pf_rules =
       "\n# alcaide NAT — allow jails on lo1 to reach the internet\n" <>
-        "nat on #{public_iface} from 10.0.0.0/24 to any -> (#{public_iface})\n"
+        "nat on #{public_iface} from 10.0.0.0/24 to any -> (#{public_iface})\n" <>
+        "pass all\n"
 
-    escaped_rule = Shell.escape(nat_rule)
+    escaped_rules = Shell.escape(pf_rules)
 
-    SSH.run!(conn, "grep -q 'alcaide NAT' /etc/pf.conf 2>/dev/null || printf '%s' #{escaped_rule} >> /etc/pf.conf")
+    SSH.run!(conn, "grep -q 'alcaide NAT' /etc/pf.conf 2>/dev/null || printf '%s' #{escaped_rules} >> /etc/pf.conf")
 
     # Enable and load PF
     SSH.run!(conn, "sysrc pf_enable=YES")
