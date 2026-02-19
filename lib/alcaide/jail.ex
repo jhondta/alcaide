@@ -139,6 +139,18 @@ defmodule Alcaide.Jail do
     SSH.run!(conn, "mount -t devfs devfs #{path}/dev")
     SSH.run!(conn, "jexec #{name} pkg install -y erlang-runtime#{otp_version}")
 
+    # Symlink Erlang binaries into /usr/local/bin so they're in PATH
+    SSH.run!(conn, """
+    jexec #{name} /bin/sh -c '
+      for bin in /usr/local/lib/erlang#{otp_version}/bin/*; do
+        ln -sf "$bin" /usr/local/bin/
+      done
+      for bin in /usr/local/lib/erlang#{otp_version}/erts-*/bin/*; do
+        ln -sf "$bin" /usr/local/bin/
+      done
+    '
+    """)
+
     # Stop jail — StartJail step will restart it later
     SSH.run(conn, "umount #{path}/dev 2>/dev/null || true")
     SSH.run(conn, "jail -r #{name} 2>/dev/null || true")
