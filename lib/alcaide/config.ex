@@ -3,6 +3,14 @@ defmodule Alcaide.Config do
   Loads and validates the `deploy.exs` configuration file.
   """
 
+  @type accessory :: %{
+          name: atom(),
+          type: atom(),
+          version: String.t(),
+          volume: String.t(),
+          port: non_neg_integer()
+        }
+
   @type t :: %__MODULE__{
           app: atom(),
           server: %{host: String.t(), user: String.t(), port: non_neg_integer()},
@@ -12,10 +20,11 @@ defmodule Alcaide.Config do
             freebsd_version: String.t(),
             port: non_neg_integer()
           },
+          accessories: [accessory()],
           env: keyword()
         }
 
-  defstruct [:app, :server, :domain, :app_jail, :env]
+  defstruct [:app, :server, :domain, :app_jail, accessories: [], env: []]
 
   @doc """
   Loads and validates the configuration from the given file path.
@@ -62,13 +71,15 @@ defmodule Alcaide.Config do
   defp build_config(raw) do
     with {:ok, app} <- require_key(raw, :app),
          {:ok, server} <- build_server(raw),
-         {:ok, app_jail} <- build_app_jail(raw) do
+         {:ok, app_jail} <- build_app_jail(raw),
+         {:ok, accessories} <- build_accessories(raw) do
       {:ok,
        %__MODULE__{
          app: app,
          server: server,
          domain: Keyword.get(raw, :domain),
          app_jail: app_jail,
+         accessories: accessories,
          env: Keyword.get(raw, :env, [])
        }}
     end
@@ -106,6 +117,49 @@ defmodule Alcaide.Config do
              port: Keyword.get(jail_opts, :port, 4000)
            }}
         end
+    end
+  end
+
+  @doc """
+  Returns the first accessory of type `:postgresql`, or `nil`.
+  """
+  @spec postgresql_accessory(t()) :: accessory() | nil
+  def postgresql_accessory(%__MODULE__{accessories: accessories}) do
+    Enum.find(accessories, &(&1.type == :postgresql))
+  end
+
+  defp build_accessories(raw) do
+    case Keyword.get(raw, :accessories) do
+      nil ->
+        {:ok, []}
+
+      accessories when is_list(accessories) ->
+        accessories
+        |> Enum.reduce_while({:ok, []}, fn {name, opts}, {:ok, acc} ->
+          case build_accessory(name, opts) do
+            {:ok, accessory} -> {:cont, {:ok, [accessory | acc]}}
+            {:error, _} = err -> {:halt, err}
+          end
+        end)
+        |> case do
+          {:ok, list} -> {:ok, Enum.reverse(list)}
+          error -> error
+        end
+    end
+  end
+
+  defp build_accessory(name, opts) do
+    with {:ok, type} <- require_nested_key(opts, :type, "accessories.#{name}"),
+         {:ok, version} <- require_nested_key(opts, :version, "accessories.#{name}"),
+         {:ok, volume} <- require_nested_key(opts, :volume, "accessories.#{name}") do
+      {:ok,
+       %{
+         name: name,
+         type: type,
+         version: version,
+         volume: volume,
+         port: Keyword.get(opts, :port, 5432)
+       }}
     end
   end
 

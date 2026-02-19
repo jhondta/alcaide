@@ -41,6 +41,28 @@ defmodule Alcaide.ConfigTest do
       {:error, msg} = Config.load("test/fixtures/nonexistent.exs")
       assert msg =~ "Configuration file not found"
     end
+
+    test "loads config with accessories" do
+      {:ok, config} = Config.load("test/fixtures/deploy_with_db.exs")
+
+      assert length(config.accessories) == 1
+      [db] = config.accessories
+      assert db.name == :db
+      assert db.type == :postgresql
+      assert db.version == "16"
+      assert db.volume == "/data/postgres:/var/db/postgresql"
+      assert db.port == 5432
+    end
+
+    test "loads config without accessories (defaults to empty list)" do
+      {:ok, config} = Config.load("test/fixtures/deploy.exs")
+      assert config.accessories == []
+    end
+
+    test "returns error for invalid accessory (missing required keys)" do
+      {:error, msg} = Config.load("test/fixtures/deploy_invalid_accessory.exs")
+      assert msg =~ "Missing required key :version"
+    end
   end
 
   describe "load!/1" do
@@ -53,6 +75,23 @@ defmodule Alcaide.ConfigTest do
       assert_raise ArgumentError, ~r/Missing required key/, fn ->
         Config.load!("test/fixtures/deploy_invalid.exs")
       end
+    end
+  end
+
+  describe "postgresql_accessory/1" do
+    test "returns the postgresql accessory when configured" do
+      {:ok, config} = Config.load("test/fixtures/deploy_with_db.exs")
+
+      accessory = Config.postgresql_accessory(config)
+      assert accessory != nil
+      assert accessory.type == :postgresql
+      assert accessory.name == :db
+    end
+
+    test "returns nil when no accessories" do
+      {:ok, config} = Config.load("test/fixtures/deploy.exs")
+
+      assert Config.postgresql_accessory(config) == nil
     end
   end
 end

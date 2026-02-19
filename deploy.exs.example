@@ -25,9 +25,22 @@ config :alcaide,
     port: 4000
   ],
 
+  # Auxiliary services (each runs in its own persistent jail).
+  # Remove or comment out this section if your app doesn't need a database.
+  accessories: [
+    db: [
+      type: :postgresql,
+      version: "16",
+      # Host path : Jail path — data persists on the host via nullfs
+      volume: "/data/postgres:/var/db/postgresql",
+      port: 5432
+    ]
+  ],
+
   # Environment variables injected into the application jail
   # Secret values should go in deploy.secrets.exs (encrypted) in a future stage
   env: [
+    DATABASE_URL: "ecto://app:app@10.0.0.4/my_app_prod",
     PHX_HOST: "myapp.example.com",
     PORT: "4000",
     SECRET_KEY_BASE: "generate-with-mix-phx-gen-secret"

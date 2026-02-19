@@ -14,6 +14,7 @@ defmodule Alcaide.CLI do
     Pipeline.Steps.CreateJail,
     Pipeline.Steps.InstallRelease,
     Pipeline.Steps.StartJail,
+    Pipeline.Steps.RunMigrations,
     Pipeline.Steps.HealthCheck,
     Pipeline.Steps.UpdateProxy,
     Pipeline.Steps.CleanupOldJail
@@ -44,6 +45,8 @@ defmodule Alcaide.CLI do
     {:ok, conn} = SSH.connect(config.server)
 
     Output.step("Deploying #{config.app}")
+
+    ensure_accessories_running(conn, config)
 
     context = %{config: config, conn: conn}
 
@@ -138,6 +141,23 @@ defmodule Alcaide.CLI do
     Output.info("Enabling Caddy service...")
     SSH.run!(conn, "sysrc caddy_enable=YES")
     SSH.run!(conn, "service caddy start 2>/dev/null || service caddy reload")
+
+    # 8. Provision accessories (database, etc.)
+    provision_accessories(conn, config)
+  end
+
+  defp ensure_accessories_running(conn, config) do
+    case Config.postgresql_accessory(config) do
+      nil -> :ok
+      accessory -> Alcaide.Accessories.ensure_running(conn, config, accessory)
+    end
+  end
+
+  defp provision_accessories(conn, config) do
+    case Config.postgresql_accessory(config) do
+      nil -> Output.info("No accessories configured, skipping")
+      accessory -> Alcaide.Accessories.setup_postgresql(conn, config, accessory)
+    end
   end
 
   defp usage do
