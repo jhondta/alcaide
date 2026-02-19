@@ -142,6 +142,7 @@ defmodule Alcaide.Jail do
     # Symlink Erlang binaries into /usr/local/bin so they're in PATH
     SSH.run!(conn, """
     jexec #{name} /bin/sh -c '
+      mkdir -p /usr/local/bin
       for bin in /usr/local/lib/erlang#{otp_version}/bin/*; do
         ln -sf "$bin" /usr/local/bin/
       done
