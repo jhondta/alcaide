@@ -64,8 +64,8 @@ defmodule Alcaide.BuildJail do
     start_jail(conn, config)
 
     # 4. Install build tools
-    Output.info("Installing Elixir, Erlang, and Node.js in build jail...")
-    SSH.run!(conn, "jexec #{name} pkg install -y elixir node22 npm-node22",
+    Output.info("Installing Elixir, Erlang, Node.js, and git in build jail...")
+    SSH.run!(conn, "jexec #{name} pkg install -y elixir node22 npm-node22 git",
       timeout: 300_000
     )
 
