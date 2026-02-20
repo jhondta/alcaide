@@ -14,6 +14,7 @@ alcaide deploy
 
 - **Simplicity over generality.** The tool is optimized for the Phoenix + FreeBSD case. It does not attempt to be a general-purpose orchestrator.
 - **No remote agent.** Everything is executed via SSH from the local machine. The server needs nothing beyond base FreeBSD.
+- **Zero runtime dependencies.** Only Erlang/OTP is required on the developer machine. All operations (SSH, file upload, encryption) use OTP standard libraries.
 - **Reproducibility.** The configuration file describes the complete desired state of the server.
 - **Blue/green deployment from the start.** There is always an active jail and an incoming new jail. The switch is atomic from the proxy's perspective. Rotation is part of the fundamental model, not an afterthought.
 - **Fail loudly.** Any failed step stops the process and reports the error clearly.
@@ -29,18 +30,22 @@ alcaide/
 │   ├── alcaide/
 │   │   ├── cli.ex              # Entry point, argument parsing
 │   │   ├── config.ex           # Loading and validation of deploy.exs
-│   │   ├── ssh.ex              # SSH connection and command execution abstraction
-│   │   ├── release.ex          # Building the release with mix release
-│   │   ├── upload.ex           # Uploading the release to the server via SFTP
-│   │   ├── jail.ex             # Jail lifecycle management (includes blue/green rotation)
+│   │   ├── ssh.ex              # SSH connection, command execution, file upload
+│   │   ├── build_jail.ex       # Persistent build jail (compile releases on FreeBSD)
+│   │   ├── jail.ex             # App jail lifecycle (blue/green rotation)
 │   │   ├── proxy.ex            # Caddy configuration and reload
 │   │   ├── migrations.ex       # Ecto migration execution
 │   │   ├── secrets.ex          # Encryption and decryption of the secrets file
 │   │   ├── accessories.ex      # Auxiliary jail management (database, etc.)
-│   │   └── pipeline.ex         # Step runner with rollback support
+│   │   ├── health_check.ex     # HTTP health checks for deployed apps
+│   │   ├── shell.ex            # Shell argument escaping
+│   │   ├── output.ex           # Terminal output formatting
+│   │   ├── pipeline.ex         # Step runner with rollback support
+│   │   └── pipeline/
+│   │       ├── step.ex         # Step behaviour definition
+│   │       └── steps/          # Individual deploy pipeline steps
 │   └── mix/
-│       └── tasks/
-│           └── alcaide.ex      # Mix task (alternative to binary)
+│       └── tasks/              # Mix tasks (alcaide.deploy, alcaide.setup, etc.)
 ├── test/
 └── deploy.exs.example          # Example configuration file
 ```
@@ -117,25 +122,40 @@ Steps:
 7. Write the base Caddy configuration (`/usr/local/etc/caddy/Caddyfile`).
 8. Start and enable Caddy as an rc service.
 9. Provision accessory jails (database, etc.).
-10. Initialize the database if applicable.
+10. Provision the build jail — a persistent jail (`{app}_build`) with Elixir, Erlang, and Node.js installed for compiling releases natively on FreeBSD.
 
 ### `alcaide deploy`
 
 Deploys a new version of the application. This is the main command. Includes blue/green rotation from the first deployment.
 
+```
+Developer machine                    FreeBSD server
+─────────────────                    ──────────────
+git archive → tar (~5MB)  ──SSH──→   build jail (10.0.0.5)
+                                       ├── mix deps.get
+                                       ├── mix assets.deploy
+                                       └── mix release
+                                            ↓
+                                     release tarball (server disk)
+                                            ↓
+                                     cp local → app jail /app
+```
+
 Steps (see Pipeline section below):
-1. Build the release locally.
-2. Upload the release to the server.
-3. Determine which jail comes next (blue or green). If this is the first deploy, there is no previous jail.
-4. Create the new jail by cloning the base system template.
-5. Install the Erlang runtime (`erlang-runtimeNN`) inside the jail via `pkg install`. The OTP version is auto-detected from the local system.
-6. Install the release inside the new jail.
+1. Ensure the build jail is running.
+2. Create a source tarball via `git archive` and upload it to the build jail via SSH channel.
+3. Build the release inside the build jail (`mix deps.get`, `mix assets.deploy`, `mix release`). The build jail caches `deps/` and `_build/` between deploys for fast incremental builds.
+4. Determine which jail comes next (blue or green). If this is the first deploy, there is no previous jail.
+5. Create the new app jail by cloning the base system template.
+6. Extract the release tarball (built in step 3) into the app jail. This is a local copy on the server — no network transfer needed.
 7. Start the new jail.
 8. Run migrations from the new jail.
 9. Verify the application responds (health check).
 10. Update the Caddy configuration to point to the new jail.
 11. Reload Caddy (zero downtime).
 12. Stop and destroy the previous jail (if it exists).
+
+The release is self-contained (includes ERTS), so the app jail does not need Erlang installed.
 
 ### `alcaide rollback`
 
@@ -267,6 +287,7 @@ Host:           10.0.0.1  (lo1 interface)
 my_app_blue:    10.0.0.2:4000
 my_app_green:   10.0.0.3:4000
 db_jail:        10.0.0.4:5432
+my_app_build:   10.0.0.5       (build jail, no exposed port)
 ```
 
 The `lo1` interface and its aliases are configured during `alcaide setup` in `/etc/rc.conf`:
@@ -275,6 +296,38 @@ The `lo1` interface and its aliases are configured during `alcaide setup` in `/e
 cloned_interfaces="lo1"
 ifconfig_lo1_alias0="inet 10.0.0.1/24"
 ```
+
+---
+
+## Build jail
+
+The `BuildJail` module manages a persistent jail (`{app}_build`) that compiles Phoenix releases natively on FreeBSD. This eliminates cross-compilation issues: NIFs compile for the correct platform, ERTS is bundled in the release, and OTP versions match automatically.
+
+### Why a build jail?
+
+Building locally on Linux and deploying to FreeBSD causes fundamental incompatibilities:
+- NIFs (argon2, bcrypt, rustler, etc.) compiled on Linux fail on FreeBSD
+- OTP library version mismatches require fragile symlink hacks
+- `include_erts: false` forces users to audit dependencies manually
+
+### Lifecycle
+
+The build jail is provisioned once during `alcaide setup` and persists between deploys:
+
+1. Clone the FreeBSD base template
+2. Install Elixir, Erlang, and Node.js via `pkg install`
+3. Configure hex and rebar
+
+During each deploy:
+1. Source code is tarball'd via `git archive` (respects `.gitignore`, ~5MB)
+2. Uploaded to the server via SSH channel
+3. Extracted into the build jail, preserving cached `deps/` and `_build/`
+4. `mix deps.get` + `mix assets.deploy` + `mix release` run inside the jail
+5. The release tarball is copied locally into the app jail (no network transfer)
+
+### Build caching
+
+The `deps/` and `_build/` directories persist in the build jail between deploys. Only source files are replaced on each deploy, making subsequent builds incremental and fast.
 
 ---
 
@@ -322,15 +375,18 @@ Flow:
 
 ## SSH module
 
-The `SSH` module is the foundation of the entire tool. It wraps connection and remote command execution using the Erlang/OTP `:ssh` library (no external dependencies).
+The `SSH` module is the foundation of the entire tool. It wraps connection, remote command execution, and file upload using the Erlang/OTP `:ssh` and `:ssh_connection` libraries (no external dependencies).
 
 ```elixir
 # Conceptual public interface
 SSH.connect(host, user, port, key_path) :: {:ok, conn} | {:error, reason}
-SSH.run(conn, command) :: {:ok, output} | {:error, output, exit_code}
-SSH.upload(conn, local_path, remote_path) :: :ok | {:error, reason}
+SSH.run(conn, command, opts) :: {:ok, output, exit_code}
+SSH.run!(conn, command, opts) :: output  # raises on non-zero exit
+SSH.upload!(conn, local_path, remote_path) :: :ok
 SSH.disconnect(conn) :: :ok
 ```
+
+Commands support a configurable `:timeout` option (default 60s, build commands use up to 5 minutes). File uploads use SSH channel pipes (`cat > path`), sending data in 32KB chunks — suitable for source tarballs up to ~10MB.
 
 All commands are executed with real-time output visible in the user's terminal, prefixed with the server name for clarity.
 
@@ -361,50 +417,38 @@ chmod +x alcaide
 
 ## Staged build plan
 
-### Stage 1 — Minimum happy path with blue/green rotation
+### Stage 1 — Minimum happy path with blue/green rotation (done)
 
-Goal: deploy a simple Phoenix application (no database) in a jail with blue/green rotation and serve HTTP traffic (no TLS).
+- Modules: `Config`, `SSH`, `Jail` (blue/green rotation), `Pipeline`.
 
-- Modules to build: `Config`, `SSH`, `Release`, `Upload`, `Jail` (with blue/green rotation), `Pipeline`.
-- The `Jail` module already includes the logic to determine which jail to create (blue/green), clone the template, and destroy the previous one.
-- Success criteria: `alcaide deploy` uploads the release, creates the corresponding jail, starts Phoenix, and the application responds on the configured port. A second `alcaide deploy` rotates to the other jail without interruption.
+### Stage 2 — Proxy and TLS (done)
 
-### Stage 2 — Proxy and TLS
+- Modules: `Proxy` (Caddy with automatic TLS).
 
-Goal: serve the application over HTTPS with a real domain.
+### Stage 3 — Database and migrations (done)
 
-- Modules to build: `Proxy`.
-- Success criteria: Caddy serves the application at `https://myapp.com` with a valid certificate. Jail rotation updates the proxy automatically.
+- Modules: `Accessories`, `Migrations`.
 
-### Stage 3 — Database and migrations
+### Stage 4 — Secrets and rollback (done)
 
-Goal: provision PostgreSQL in its own jail and run migrations.
+- Modules: `Secrets`.
 
-- Modules to build: `Accessories`, `Migrations`.
-- Success criteria: `alcaide setup` starts the database jail and `alcaide deploy` runs migrations correctly.
+### Stage 5 — Logs and remote commands (done)
 
-### Stage 4 — Secrets and rollback
+- Integrated into `CLI`.
 
-Goal: secure credential handling and rollback capability.
+### Stage 6 — Polish and distribution (done)
 
-- Modules to build: `Secrets`.
-- Success criteria: `alcaide secrets edit` allows editing encrypted secrets and `alcaide rollback` reactivates the previous jail.
+- Error messages, documentation, packaging.
 
-### Stage 5 — Logs and remote commands
+### Stage 7 — Build jail (done)
 
-Goal: day-to-day operational tools.
+Goal: compile releases natively on FreeBSD, eliminating all cross-compilation issues.
 
-- Modules to build: `Logs` (or integrated into `CLI`).
-- Success criteria: `alcaide logs -f` shows real-time logs, `alcaide run` executes commands in the active jail.
-
-### Stage 6 — Polish and distribution
-
-Goal: user experience ready to share with the community.
-
-- Clear error messages with suggested fixes.
-- Complete `deploy.exs` documentation.
-- Binary packaging with Burrito.
-- README and quick start guide.
+- Modules: `BuildJail`, pipeline steps `EnsureBuildJail`, `UploadSource`, `RemoteBuild`.
+- Removed: `Release` (local build), `Upload` (scp-based), `InstallRuntime` (no longer needed).
+- The SSH module now uses native Erlang channels for file upload (no `scp` dependency).
+- Success criteria: `alcaide deploy` uploads source code, builds in the build jail, and deploys the release with full NIF support.
 
 ---
 

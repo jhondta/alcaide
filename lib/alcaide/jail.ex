@@ -110,59 +110,6 @@ defmodule Alcaide.Jail do
   end
 
   @doc """
-  Installs the Erlang runtime inside the jail via `pkg install`.
-
-  Starts the jail temporarily, installs the matching `erlang-runtimeNN`
-  package, then stops the jail. This is needed when the release is built
-  with `include_erts: false`.
-  """
-  @spec install_runtime(SSH.t(), Alcaide.Config.t(), slot()) :: :ok | {:error, String.t()}
-  def install_runtime(conn, config, slot) do
-    name = jail_name(config, slot)
-    ip = slot_ip(slot)
-    path = "#{config.app_jail.base_path}/#{name}"
-
-    otp_version = :erlang.system_info(:otp_release) |> List.to_string()
-
-    Output.info("Installing erlang-runtime#{otp_version} in jail #{name}...")
-
-    # Start jail temporarily for pkg install
-    SSH.run!(conn, """
-    jail -c name=#{name} \
-      path=#{path} \
-      ip4.addr="lo1|#{ip}/32" \
-      host.hostname=#{name} \
-      allow.raw_sockets \
-      persist
-    """)
-
-    SSH.run!(conn, "mount -t devfs devfs #{path}/dev")
-    SSH.run!(conn, "jexec #{name} pkg install -y erlang-runtime#{otp_version}")
-
-    # Symlink Erlang binaries into /usr/local/bin so they're in PATH
-    SSH.run!(conn, """
-    jexec #{name} /bin/sh -c '
-      mkdir -p /usr/local/bin
-      for bin in /usr/local/lib/erlang#{otp_version}/bin/*; do
-        ln -sf "$bin" /usr/local/bin/
-      done
-      for bin in /usr/local/lib/erlang#{otp_version}/erts-*/bin/*; do
-        ln -sf "$bin" /usr/local/bin/
-      done
-    '
-    """)
-
-    # Stop jail — StartJail step will restart it later
-    SSH.run(conn, "umount #{path}/dev 2>/dev/null || true")
-    SSH.run(conn, "jail -r #{name} 2>/dev/null || true")
-
-    Output.success("Erlang runtime installed")
-    :ok
-  rescue
-    e -> {:error, "Failed to install runtime: #{Exception.message(e)}"}
-  end
-
-  @doc """
   Starts a jail with the given slot's IP address.
   """
   @spec start(SSH.t(), Alcaide.Config.t(), slot()) :: :ok | {:error, String.t()}
@@ -214,6 +161,8 @@ defmodule Alcaide.Jail do
   Starts the Phoenix application inside the jail.
 
   Environment variables from the config are injected into the process.
+  The release is self-contained (includes ERTS) so no system Erlang
+  is needed in the app jail.
   """
   @spec start_app(SSH.t(), Alcaide.Config.t(), slot()) :: :ok | {:error, String.t()}
   def start_app(conn, config, slot) do
@@ -221,25 +170,6 @@ defmodule Alcaide.Jail do
     app_name = Atom.to_string(config.app)
 
     Output.info("Starting application in jail #{name}...")
-
-    # Ensure release libs are visible to the Erlang runtime.
-    # The boot script resolves OTP libs via $ROOT (ROOTDIR), which points
-    # to the system Erlang installation. When the release bundles a newer
-    # patch version of an OTP lib (e.g. public_key-1.20.1 vs system 1.20),
-    # we symlink the release version into the system lib dir so the boot
-    # script can find it.
-    otp_version = :erlang.system_info(:otp_release) |> List.to_string()
-
-    SSH.run!(conn, """
-    jexec #{name} /bin/sh -c '
-      for lib in /app/lib/*; do
-        name=$(basename "$lib")
-        if [ ! -e /usr/local/lib/erlang#{otp_version}/lib/"$name" ]; then
-          ln -sf "$lib" /usr/local/lib/erlang#{otp_version}/lib/"$name"
-        fi
-      done
-    '
-    """)
 
     env_vars = [{"PHX_SERVER", "true"} | config.env]
 

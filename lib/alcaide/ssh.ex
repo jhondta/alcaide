@@ -1,7 +1,7 @@
 defmodule Alcaide.SSH do
   @moduledoc """
   SSH connection, command execution, and file upload using Erlang/OTP's
-  `:ssh`, `:ssh_connection`, and `:ssh_sftp` modules.
+  `:ssh` and `:ssh_connection` modules.
   """
 
   defstruct [:connection, :host, :user, :port]
@@ -12,6 +12,9 @@ defmodule Alcaide.SSH do
           user: String.t(),
           port: non_neg_integer()
         }
+
+  @default_timeout 60_000
+  @upload_chunk_size 32_768
 
   @doc """
   Connects to a remote server via SSH.
@@ -44,21 +47,28 @@ defmodule Alcaide.SSH do
 
   Returns `{:ok, output, exit_code}` on completion. Output is streamed
   to the terminal in real-time.
+
+  ## Options
+
+    * `:timeout` - command timeout in milliseconds (default: #{@default_timeout})
+
   """
-  @spec run(t(), String.t()) :: {:ok, String.t(), non_neg_integer()}
-  def run(%__MODULE__{connection: conn_ref, host: host}, command) do
+  @spec run(t(), String.t(), keyword()) :: {:ok, String.t(), non_neg_integer()}
+  def run(%__MODULE__{connection: conn_ref, host: host}, command, opts \\ []) do
+    timeout = Keyword.get(opts, :timeout, @default_timeout)
+
     {:ok, channel} = :ssh_connection.session_channel(conn_ref, :infinity)
     :success = :ssh_connection.exec(conn_ref, channel, to_charlist(command), :infinity)
 
-    collect_output(conn_ref, channel, host, _acc = "", _exit_code = nil)
+    collect_output(conn_ref, channel, host, _acc = "", _exit_code = nil, timeout)
   end
 
   @doc """
   Same as `run/2` but raises on non-zero exit code.
   """
-  @spec run!(t(), String.t()) :: String.t()
-  def run!(conn, command) do
-    case run(conn, command) do
+  @spec run!(t(), String.t(), keyword()) :: String.t()
+  def run!(conn, command, opts \\ []) do
+    case run(conn, command, opts) do
       {:ok, output, 0} ->
         output
 
@@ -73,28 +83,32 @@ defmodule Alcaide.SSH do
   Uploads a local file to a remote path via SSH channel.
 
   Pipes the file content through `cat > path` on the remote server,
-  using the existing SSH connection. This avoids SFTP subsystem issues
-  that some server configurations exhibit.
+  sending data in #{div(@upload_chunk_size, 1024)}KB chunks. Suitable
+  for files up to ~10MB; larger files may encounter SSH flow control
+  issues.
   """
   @spec upload!(t(), String.t(), String.t()) :: :ok
-  def upload!(%__MODULE__{host: host, user: user, port: port}, local_path, remote_path) do
+  def upload!(%__MODULE__{connection: conn_ref, host: host}, local_path, remote_path) do
     Alcaide.Output.info("Uploading #{Path.basename(local_path)} to #{host}:#{remote_path}")
 
-    scp_args = [
-      "-P", Integer.to_string(port),
-      "-o", "StrictHostKeyChecking=no",
-      local_path,
-      "#{user}@#{host}:#{remote_path}"
-    ]
+    file_size = File.stat!(local_path).size
 
-    case System.cmd("scp", scp_args, stderr_to_stdout: true) do
-      {_, 0} ->
-        Alcaide.Output.success("Upload complete")
-        :ok
+    {:ok, channel} = :ssh_connection.session_channel(conn_ref, :infinity)
+    :success = :ssh_connection.exec(conn_ref, channel, ~c"cat > #{remote_path}", :infinity)
 
-      {output, code} ->
-        raise "Upload failed (scp exit #{code}): #{String.trim(output)}"
-    end
+    File.stream!(local_path, @upload_chunk_size)
+    |> Enum.each(fn chunk ->
+      :ok = :ssh_connection.send(conn_ref, channel, chunk, :infinity)
+    end)
+
+    :ok = :ssh_connection.send_eof(conn_ref, channel)
+
+    # Wait for the remote cat process to exit
+    wait_for_channel_close(conn_ref, channel)
+
+    size_kb = file_size / 1024
+    Alcaide.Output.success("Upload complete (#{:erlang.float_to_binary(size_kb, decimals: 1)} KB)")
+    :ok
   end
 
   @doc """
@@ -138,24 +152,46 @@ defmodule Alcaide.SSH do
   defp format_ssh_error(reason),
     do: "#{inspect(reason)}. Check your SSH key at ~/.ssh/ and server configuration."
 
-  defp collect_output(conn_ref, channel, host, acc, exit_code) do
+  defp collect_output(conn_ref, channel, host, acc, exit_code, timeout) do
     receive do
       {:ssh_cm, ^conn_ref, {:data, ^channel, _type, data}} ->
         output = IO.chardata_to_string(data)
         Alcaide.Output.remote(host, output)
-        collect_output(conn_ref, channel, host, acc <> output, exit_code)
+        collect_output(conn_ref, channel, host, acc <> output, exit_code, timeout)
 
       {:ssh_cm, ^conn_ref, {:eof, ^channel}} ->
-        collect_output(conn_ref, channel, host, acc, exit_code)
+        collect_output(conn_ref, channel, host, acc, exit_code, timeout)
 
       {:ssh_cm, ^conn_ref, {:exit_status, ^channel, code}} ->
-        collect_output(conn_ref, channel, host, acc, code)
+        collect_output(conn_ref, channel, host, acc, code, timeout)
 
       {:ssh_cm, ^conn_ref, {:closed, ^channel}} ->
         {:ok, acc, exit_code || 0}
     after
-      60_000 ->
+      timeout ->
         {:ok, acc, exit_code || -1}
+    end
+  end
+
+  defp wait_for_channel_close(conn_ref, channel) do
+    receive do
+      {:ssh_cm, ^conn_ref, {:data, ^channel, _type, _data}} ->
+        wait_for_channel_close(conn_ref, channel)
+
+      {:ssh_cm, ^conn_ref, {:eof, ^channel}} ->
+        wait_for_channel_close(conn_ref, channel)
+
+      {:ssh_cm, ^conn_ref, {:exit_status, ^channel, 0}} ->
+        wait_for_channel_close(conn_ref, channel)
+
+      {:ssh_cm, ^conn_ref, {:exit_status, ^channel, code}} ->
+        raise "Upload failed: remote cat exited with code #{code}"
+
+      {:ssh_cm, ^conn_ref, {:closed, ^channel}} ->
+        :ok
+    after
+      30_000 ->
+        raise "Upload timed out waiting for remote confirmation"
     end
   end
 

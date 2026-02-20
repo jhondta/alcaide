@@ -7,7 +7,7 @@ defmodule Alcaide.Pipeline.Steps.InstallRelease do
 
   @impl true
   def run(context) do
-    %{conn: conn, config: config, next_slot: slot, remote_tarball_path: tarball} = context
+    %{conn: conn, config: config, next_slot: slot, release_tarball_path: tarball} = context
 
     case Alcaide.Jail.install_release(conn, config, slot, tarball) do
       :ok -> {:ok, context}

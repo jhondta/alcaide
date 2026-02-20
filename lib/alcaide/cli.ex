@@ -9,12 +9,12 @@ defmodule Alcaide.CLI do
 
   @deploy_steps [
     Pipeline.Steps.DestroyStaleJail,
-    Pipeline.Steps.BuildRelease,
-    Pipeline.Steps.UploadRelease,
+    Pipeline.Steps.EnsureBuildJail,
+    Pipeline.Steps.UploadSource,
+    Pipeline.Steps.RemoteBuild,
     Pipeline.Steps.DetermineSlot,
     Pipeline.Steps.LoadSecrets,
     Pipeline.Steps.CreateJail,
-    Pipeline.Steps.InstallRuntime,
     Pipeline.Steps.InstallRelease,
     Pipeline.Steps.StartJail,
     Pipeline.Steps.RunMigrations,
@@ -310,6 +310,9 @@ defmodule Alcaide.CLI do
 
     # 9. Provision accessories (database, etc.)
     provision_accessories(conn, config)
+
+    # 10. Provision build jail
+    Alcaide.BuildJail.setup(conn, config)
   end
 
   defp ensure_accessories_running(conn, config) do

@@ -35,26 +35,6 @@ Then fetch the dependency:
 mix deps.get
 ```
 
-### Configure the release
-
-Since Alcaide deploys to FreeBSD, the release must not include ERTS binaries compiled for your local OS. Add `include_erts: false` to your release configuration:
-
-```elixir
-# mix.exs
-def project do
-  [
-    ...,
-    releases: [
-      my_app: [
-        include_erts: false
-      ]
-    ]
-  ]
-end
-```
-
-Alcaide will install the matching Erlang runtime inside the jail automatically.
-
 ## Quick start
 
 ### 1. Create the configuration file
@@ -100,7 +80,7 @@ This creates an encrypted `deploy.secrets.exs` (safe to commit) and a master key
 mix alcaide.setup
 ```
 
-This connects via SSH and configures the FreeBSD server: enables jails, downloads the base system template, installs Caddy, and provisions any configured accessories (database, etc.).
+This connects via SSH and configures the FreeBSD server: enables jails, downloads the base system template, installs Caddy, provisions any configured accessories (database, etc.), and sets up the build jail with Elixir, Erlang, and Node.js for compiling releases natively on FreeBSD.
 
 ### 4. Deploy
 
@@ -108,7 +88,7 @@ This connects via SSH and configures the FreeBSD server: enables jails, download
 mix alcaide.deploy
 ```
 
-Builds the release locally, uploads it, creates a jail, runs migrations, checks health, and switches the proxy. Done.
+Uploads your source code to the build jail on the server, compiles the release natively on FreeBSD, creates an app jail, runs migrations, checks health, and switches the proxy. Done.
 
 ## Commands
 
@@ -129,6 +109,7 @@ What it does:
 4. Downloads and extracts the FreeBSD base system template.
 5. Installs and configures Caddy as a reverse proxy.
 6. Provisions accessory jails (PostgreSQL, etc.) if configured.
+7. Provisions the build jail with Elixir, Erlang, and Node.js.
 
 ### `alcaide deploy`
 
@@ -140,17 +121,20 @@ mix alcaide.deploy
 
 The deploy pipeline:
 1. Destroy any stale jail left from a previous deploy cycle.
-2. Build the release locally with `MIX_ENV=prod mix release`.
-3. Upload the release tarball to the server via SFTP.
-4. Determine the next slot (blue or green).
-5. Load encrypted secrets (if configured).
-6. Create a new jail by cloning the base template.
-7. Install the release inside the jail.
-8. Start the jail and the application.
-9. Run Ecto migrations.
-10. Health check — verify the app responds on its internal IP.
-11. Update the Caddy configuration to point to the new jail.
-12. Stop the previous jail (preserved for rollback).
+2. Ensure the build jail is running.
+3. Create a source tarball via `git archive` and upload it to the build jail.
+4. Build the release inside the build jail (`mix deps.get`, `mix assets.deploy`, `mix release`).
+5. Determine the next slot (blue or green).
+6. Load encrypted secrets (if configured).
+7. Create a new app jail by cloning the base template.
+8. Extract the release into the app jail (local copy on the server, no network transfer).
+9. Start the jail and the application.
+10. Run Ecto migrations.
+11. Health check — verify the app responds on its internal IP.
+12. Update the Caddy configuration to point to the new jail.
+13. Stop the previous jail (preserved for rollback).
+
+The release is compiled natively on FreeBSD and includes ERTS, so NIFs and all dependencies work correctly.
 
 ### `alcaide rollback`
 
@@ -313,6 +297,7 @@ Host:           10.0.0.1  (lo1)
 my_app_blue:    10.0.0.2:4000
 my_app_green:   10.0.0.3:4000
 db (postgres):  10.0.0.4:5432
+my_app_build:   10.0.0.5       (build jail, no exposed port)
 ```
 
 ### Reverse proxy (Caddy)
@@ -337,7 +322,7 @@ Secrets are encrypted with AES-256-GCM using a master key stored locally. The en
 
 ### SSH
 
-All server communication uses Erlang/OTP's `:ssh` module directly. No external SSH client or library is required. Alcaide uses your default SSH key (`~/.ssh/id_rsa`, `~/.ssh/id_ed25519`, etc.).
+All server communication uses Erlang/OTP's `:ssh` and `:ssh_connection` modules directly. No external SSH client or library is required — file uploads use SSH channel pipes instead of `scp`. Alcaide uses your default SSH key (`~/.ssh/id_rsa`, `~/.ssh/id_ed25519`, etc.).
 
 ## Requirements
 
@@ -351,10 +336,9 @@ All server communication uses Erlang/OTP's `:ssh` module directly. No external S
 lib/alcaide/
 ├── cli.ex              Entry point and argument parsing
 ├── config.ex           Loading and validation of deploy.exs
-├── ssh.ex              SSH connection and command execution
-├── release.ex          Building the release locally
-├── upload.ex           Uploading via SFTP
-├── jail.ex             Jail lifecycle and blue/green rotation
+├── ssh.ex              SSH connection, command execution, file upload
+├── build_jail.ex       Persistent build jail (compile releases on FreeBSD)
+├── jail.ex             App jail lifecycle and blue/green rotation
 ├── proxy.ex            Caddy configuration and reload
 ├── migrations.ex       Ecto migration execution
 ├── secrets.ex          AES-256-GCM encryption for secrets
@@ -364,6 +348,7 @@ lib/alcaide/
 ├── output.ex           Terminal output formatting
 └── pipeline/
     ├── pipeline.ex     Step runner with rollback support
+    ├── step.ex         Step behaviour definition
     └── steps/          Individual deploy pipeline steps
 ```
 
