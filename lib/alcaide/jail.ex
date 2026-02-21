@@ -180,7 +180,7 @@ defmodule Alcaide.Jail do
       end)
       |> Enum.join(" ")
 
-    cmd = "jexec #{name} /bin/sh -c 'cd /app && #{env_str} bin/#{app_name} daemon'"
+    cmd = "jexec #{name} /bin/sh -c 'cd /app && mkdir -p tmp/log && #{env_str} nohup bin/#{app_name} start > tmp/log/#{app_name}.log 2>&1 &'"
 
     SSH.run!(conn, cmd)
 
