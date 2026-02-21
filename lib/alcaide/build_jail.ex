@@ -54,6 +54,8 @@ defmodule Alcaide.BuildJail do
     """)
 
     # 2. Stop jail if running (so it picks up fresh resolv.conf on restart)
+    SSH.run(conn, "umount #{jail_path}/compat/linux/sys 2>/dev/null || true")
+    SSH.run(conn, "umount #{jail_path}/compat/linux/proc 2>/dev/null || true")
     SSH.run(conn, "umount #{jail_path}/dev 2>/dev/null || true")
     SSH.run(conn, "jail -r #{name} 2>/dev/null || true")
 
@@ -63,9 +65,10 @@ defmodule Alcaide.BuildJail do
     # 3. Start jail with persist mode
     start_jail(conn, config)
 
-    # 4. Install build tools
-    Output.info("Installing Elixir, Erlang, Node.js, and git in build jail...")
-    SSH.run!(conn, "jexec #{name} pkg install -y elixir node22 npm-node22 git",
+    # 4. Install build tools (tailwindcss4 provides a native FreeBSD CLI
+    #    via Node.js + @tailwindcss/oxide-freebsd-x64, avoiding linuxulator issues)
+    Output.info("Installing Elixir, Erlang, Node.js, git, and Tailwind in build jail...")
+    SSH.run!(conn, "jexec #{name} pkg install -y elixir node22 npm-node22 git tailwindcss4",
       timeout: 300_000
     )
 
@@ -174,23 +177,53 @@ defmodule Alcaide.BuildJail do
       timeout: 180_000
     )
 
-    # 2. Compile assets (allow failure — no-op if no assets.deploy task)
+    # 2. Pre-seed Linux binaries for asset tools (linuxulator compatibility)
+    #    FreeBSD doesn't have native Tailwind v4 binaries, but the Linux ones
+    #    work transparently via the linuxulator. We download the Linux binary
+    #    and place it where the Elixir wrapper expects it, so `mix assets.deploy`
+    #    works without any changes to the Phoenix app.
+    preseed_asset_binaries(conn, name)
+
+    # 3. Compile assets (skip if no assets.deploy task defined)
     Output.info("Compiling assets...")
 
-    case SSH.run(conn, "jexec #{name} /bin/sh -c 'cd /build/src && MIX_ENV=prod mix assets.deploy'",
-           timeout: 120_000
-         ) do
-      {:ok, _, 0} -> Output.success("Assets compiled")
-      {:ok, _, _} -> Output.info("No assets.deploy task found, skipping")
+    # First check if the assets.deploy alias exists in the project
+    case SSH.run(conn, "jexec #{name} /bin/sh -c 'cd /build/src && MIX_ENV=prod mix help assets.deploy 2>&1'") do
+      {:ok, _, 0} ->
+        # Task exists — run it and fail loudly if it errors.
+        # NODE_PATH lets Tailwind v4's resolver find the `tailwindcss` package
+        # installed by pkg at /usr/local/lib/node_modules (for @import "tailwindcss").
+        SSH.run!(conn, "jexec #{name} /bin/sh -c 'cd /build/src && MIX_ENV=prod NODE_PATH=/usr/local/lib/node_modules mix assets.deploy 2>&1'",
+          timeout: 300_000
+        )
+        Output.success("Assets compiled")
+
+      {:ok, _, _} ->
+        Output.info("No assets.deploy task found, skipping")
     end
 
-    # 3. Build release
+    # 4. Build release
     Output.info("Building release...")
     SSH.run!(conn, "jexec #{name} /bin/sh -c 'cd /build/src && MIX_ENV=prod mix release --overwrite'",
       timeout: 300_000
     )
 
-    # 4. Create release tarball
+    # 4b. Verify ERTS is included in the release
+    case SSH.run(conn,
+           "jexec #{name} /bin/sh -c 'ls -d /build/src/_build/prod/rel/#{app}/erts-* 2>/dev/null'"
+         ) do
+      {:ok, output, 0} ->
+        if String.trim(output) != "" do
+          Output.success("Release includes ERTS")
+        else
+          raise "Release does not include ERTS. Add `include_erts: true` to your release config in mix.exs."
+        end
+
+      _ ->
+        raise "Release does not include ERTS. Add `include_erts: true` to your release config in mix.exs."
+    end
+
+    # 5. Create release tarball
     Output.info("Creating release tarball...")
 
     SSH.run!(conn, """
@@ -217,6 +250,8 @@ defmodule Alcaide.BuildJail do
     jail_path = "#{config.app_jail.base_path}/#{name}"
 
     Output.info("Destroying build jail #{name}...")
+    SSH.run(conn, "umount #{jail_path}/compat/linux/sys 2>/dev/null || true")
+    SSH.run(conn, "umount #{jail_path}/compat/linux/proc 2>/dev/null || true")
     SSH.run(conn, "umount #{jail_path}/dev 2>/dev/null || true")
     SSH.run(conn, "jail -r #{name} 2>/dev/null || true")
     SSH.run(conn, "chflags -R noschg #{jail_path} 2>/dev/null || true")
@@ -254,6 +289,41 @@ defmodule Alcaide.BuildJail do
     :ok
   end
 
+  # Places a wrapper script at the path where the Elixir tailwind package
+  # expects the binary (_build/tailwind-freebsd-x64). The wrapper delegates
+  # to the native tailwindcss installed via pkg. We use a script instead of
+  # a symlink because the Elixir wrapper's File.exists? check can fail on
+  # symlinks that cross jail mount boundaries.
+  defp preseed_asset_binaries(conn, name) do
+    detect_cmd = ~s(jexec #{name} /bin/sh -c 'grep -A5 ":tailwind" /build/src/config/*.exs 2>/dev/null | grep -oE "[0-9]+[.][0-9]+[.][0-9]+" | head -1')
+
+    case SSH.run(conn, detect_cmd) do
+      {:ok, version, 0} ->
+        version = String.trim(version)
+
+        if version != "" do
+          Output.info("Installing native Tailwind wrapper for v#{version}...")
+
+          SSH.run!(conn, """
+          jexec #{name} /bin/sh -c '
+            cd /build/src
+            mkdir -p _build
+            target_path="_build/tailwind-freebsd-x64"
+            rm -f "$target_path"
+            printf "#!/bin/sh\\nexec /usr/local/bin/tailwindcss \\"\\$@\\"\\n" > "$target_path"
+            chmod +x "$target_path"
+            echo "Tailwind wrapper installed"
+          '
+          """)
+        else
+          Output.info("Tailwind not configured, skipping")
+        end
+
+      _ ->
+        Output.info("Tailwind not configured, skipping")
+    end
+  end
+
   defp start_jail(conn, config) do
     name = build_jail_name(config)
     base_path = config.app_jail.base_path
@@ -282,6 +352,23 @@ defmodule Alcaide.BuildJail do
       echo "devfs mounted"
     else
       echo "devfs already mounted"
+    fi
+    """)
+
+    # Mount Linux compatibility filesystems (linuxulator)
+    SSH.run!(conn, """
+    mkdir -p #{jail_path}/compat/linux/proc #{jail_path}/compat/linux/sys
+    if ! mount | grep -q '#{jail_path}/compat/linux/proc'; then
+      mount -t linprocfs linprocfs #{jail_path}/compat/linux/proc
+      echo "linprocfs mounted"
+    else
+      echo "linprocfs already mounted"
+    fi
+    if ! mount | grep -q '#{jail_path}/compat/linux/sys'; then
+      mount -t linsysfs linsysfs #{jail_path}/compat/linux/sys
+      echo "linsysfs mounted"
+    else
+      echo "linsysfs already mounted"
     fi
     """)
 

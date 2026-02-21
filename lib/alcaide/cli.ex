@@ -264,21 +264,26 @@ defmodule Alcaide.CLI do
     sysrc ifconfig_lo1_alias0="inet 10.0.0.1/24"
     """)
 
-    # 4. Create lo1 interface
+    # 4. Enable Linux binary compatibility (linuxulator)
+    Output.info("Enabling Linux binary compatibility...")
+    SSH.run!(conn, "sysrc linux_enable=YES")
+    SSH.run!(conn, "service linux start 2>/dev/null || kldload linux64 2>/dev/null || true")
+
+    # 5. Create lo1 interface
     Output.info("Configuring loopback interface lo1...")
     SSH.run!(conn, "ifconfig lo1 create 2>/dev/null || true")
     SSH.run!(conn, "ifconfig lo1 alias 10.0.0.1/24 2>/dev/null || true")
 
-    # 5. Configure NAT for jail internet access
+    # 6. Configure NAT for jail internet access
     Output.info("Configuring NAT for jail network...")
     configure_nat(conn)
 
-    # 6. Create directory structure
+    # 7. Create directory structure
     base_path = config.app_jail.base_path
     Output.info("Creating directory structure at #{base_path}...")
     SSH.run!(conn, "mkdir -p #{base_path}/.templates #{base_path}/.releases")
 
-    # 7. Download and extract base system template
+    # 8. Download and extract base system template
     version = config.app_jail.freebsd_version
     url = "https://download.freebsd.org/releases/#{arch}/#{version}/base.txz"
 
@@ -296,7 +301,7 @@ defmodule Alcaide.CLI do
     fi
     """)
 
-    # 8. Install and configure Caddy reverse proxy
+    # 9. Install and configure Caddy reverse proxy
     Output.info("Installing Caddy reverse proxy...")
     SSH.run!(conn, "pkg install -y caddy")
 
@@ -308,10 +313,10 @@ defmodule Alcaide.CLI do
     SSH.run!(conn, "sysrc caddy_enable=YES")
     SSH.run!(conn, "service caddy start 2>/dev/null || service caddy reload")
 
-    # 9. Provision accessories (database, etc.)
+    # 10. Provision accessories (database, etc.)
     provision_accessories(conn, config)
 
-    # 10. Provision build jail
+    # 11. Provision build jail
     Alcaide.BuildJail.setup(conn, config)
   end
 

@@ -80,7 +80,7 @@ This creates an encrypted `deploy.secrets.exs` (safe to commit) and a master key
 mix alcaide.setup
 ```
 
-This connects via SSH and configures the FreeBSD server: enables jails, downloads the base system template, installs Caddy, provisions any configured accessories (database, etc.), and sets up the build jail with Elixir, Erlang, and Node.js for compiling releases natively on FreeBSD.
+This connects via SSH and configures the FreeBSD server: enables jails and Linux binary compatibility, downloads the base system template, installs Caddy, provisions any configured accessories (database, etc.), and sets up the build jail with Elixir, Erlang, Node.js, and git for compiling releases natively on FreeBSD.
 
 ### 4. Deploy
 
@@ -105,11 +105,12 @@ mix alcaide.setup
 What it does:
 1. Verifies the server is running FreeBSD and detects architecture.
 2. Enables the jail subsystem and configures the `lo1` loopback interface.
-3. Configures NAT via PF so jails can reach the internet.
-4. Downloads and extracts the FreeBSD base system template.
-5. Installs and configures Caddy as a reverse proxy.
-6. Provisions accessory jails (PostgreSQL, etc.) if configured.
-7. Provisions the build jail with Elixir, Erlang, and Node.js.
+3. Enables Linux binary compatibility (linuxulator) for asset tool support.
+4. Configures NAT via PF so jails can reach the internet.
+5. Downloads and extracts the FreeBSD base system template.
+6. Installs and configures Caddy as a reverse proxy.
+7. Provisions accessory jails (PostgreSQL, etc.) if configured.
+8. Provisions the build jail with Elixir, Erlang, Node.js, and git.
 
 ### `alcaide deploy`
 
@@ -315,6 +316,16 @@ jexec my_app_green bin/my_app eval "MyApp.Release.migrate()"
 ```
 
 This requires the standard `MyApp.Release.migrate/0` function from the Phoenix deployment guide. Migrations must be backwards-compatible with the previous code version, since the old jail continues serving traffic until the proxy switches.
+
+### Asset compilation (Tailwind, esbuild)
+
+Alcaide builds releases natively on FreeBSD. Some asset tools (notably Tailwind CSS v4+) ship standalone binaries that don't include a FreeBSD build. Alcaide handles this transparently using FreeBSD's Linux binary compatibility layer (linuxulator):
+
+1. During `alcaide setup`, the linuxulator is enabled on the host and the build jail is configured with the required Linux filesystem mounts.
+2. Before `mix assets.deploy`, Alcaide detects the configured Tailwind version and downloads the Linux binary, placing it where the Elixir wrapper expects the FreeBSD binary.
+3. The linuxulator executes the Linux binary transparently — no changes needed in the Phoenix app.
+
+This means `mix assets.deploy` works inside the build jail exactly as it does on Linux or macOS. No npm workarounds or config overrides required.
 
 ### Secrets
 
