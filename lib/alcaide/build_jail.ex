@@ -65,10 +65,9 @@ defmodule Alcaide.BuildJail do
     # 3. Start jail with persist mode
     start_jail(conn, config)
 
-    # 4. Install build tools (tailwindcss4 brings node24 as a dependency
-    #    and provides a native FreeBSD CLI via @tailwindcss/oxide-freebsd-x64)
-    Output.info("Installing Elixir, Erlang, Node.js, git, and Tailwind in build jail...")
-    SSH.run!(conn, "jexec #{name} pkg install -y elixir git tailwindcss4",
+    # 4. Install build tools
+    Output.info("Installing Elixir, Erlang, Node.js, and git in build jail...")
+    SSH.run!(conn, "jexec #{name} pkg install -y elixir node24 npm-node24 git",
       timeout: 300_000
     )
 
@@ -286,11 +285,14 @@ defmodule Alcaide.BuildJail do
     :ok
   end
 
-  # Places a wrapper script at the path where the Elixir tailwind package
-  # expects the binary (_build/tailwind-freebsd-x64). The wrapper delegates
-  # to the native tailwindcss installed via pkg. We use a script instead of
-  # a symlink because the Elixir wrapper's File.exists? check can fail on
-  # symlinks that cross jail mount boundaries.
+  # Installs the exact Tailwind CSS version from the app's config via npm
+  # and places a wrapper script at _build/tailwind-freebsd-x64 so the Elixir
+  # tailwind package finds it and skips its own download (which would fail —
+  # there's no standalone FreeBSD binary on GitHub releases).
+  #
+  # We use npm instead of the FreeBSD tailwindcss4 pkg because:
+  # - The pkg version may lag behind the app's configured version
+  # - Version mismatches can cause breakage (e.g., @plugin options support)
   defp preseed_asset_binaries(conn, name) do
     detect_cmd = ~s(jexec #{name} /bin/sh -c 'grep -A5 ":tailwind" /build/src/config/*.exs 2>/dev/null | grep -oE "[0-9]+[.][0-9]+[.][0-9]+" | head -1')
 
@@ -299,8 +301,17 @@ defmodule Alcaide.BuildJail do
         version = String.trim(version)
 
         if version != "" do
-          Output.info("Installing native Tailwind wrapper for v#{version}...")
+          Output.info("Installing Tailwind CSS v#{version} via npm...")
 
+          # Install @tailwindcss/cli globally at the exact version.
+          # This also installs tailwindcss and @tailwindcss/oxide-freebsd-x64.
+          SSH.run!(conn,
+            "jexec #{name} npm install -g @tailwindcss/cli@#{version}",
+            timeout: 120_000
+          )
+
+          # Place a wrapper script at the path the Elixir package expects.
+          # Using a real file (not a symlink) so File.exists? always passes.
           SSH.run!(conn, """
           jexec #{name} /bin/sh -c '
             cd /build/src
