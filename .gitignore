@@ -24,3 +24,6 @@ erl_crash.dump
 *.swo
 *~
 .DS_Store
+
+# Claude AI files
+.claude/
