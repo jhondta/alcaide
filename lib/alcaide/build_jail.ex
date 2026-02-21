@@ -65,10 +65,10 @@ defmodule Alcaide.BuildJail do
     # 3. Start jail with persist mode
     start_jail(conn, config)
 
-    # 4. Install build tools (tailwindcss4 provides a native FreeBSD CLI
-    #    via Node.js + @tailwindcss/oxide-freebsd-x64, avoiding linuxulator issues)
+    # 4. Install build tools (tailwindcss4 brings node24 as a dependency
+    #    and provides a native FreeBSD CLI via @tailwindcss/oxide-freebsd-x64)
     Output.info("Installing Elixir, Erlang, Node.js, git, and Tailwind in build jail...")
-    SSH.run!(conn, "jexec #{name} pkg install -y elixir node22 npm-node22 git tailwindcss4",
+    SSH.run!(conn, "jexec #{name} pkg install -y elixir git tailwindcss4",
       timeout: 300_000
     )
 
@@ -177,11 +177,8 @@ defmodule Alcaide.BuildJail do
       timeout: 180_000
     )
 
-    # 2. Pre-seed Linux binaries for asset tools (linuxulator compatibility)
-    #    FreeBSD doesn't have native Tailwind v4 binaries, but the Linux ones
-    #    work transparently via the linuxulator. We download the Linux binary
-    #    and place it where the Elixir wrapper expects it, so `mix assets.deploy`
-    #    works without any changes to the Phoenix app.
+    # 2. Place wrapper script so the Elixir tailwind package finds the
+    #    native binary installed by pkg (see preseed_asset_binaries/2).
     preseed_asset_binaries(conn, name)
 
     # 3. Compile assets (skip if no assets.deploy task defined)
